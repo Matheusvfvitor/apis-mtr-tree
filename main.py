@@ -71,7 +71,7 @@ def consultar_manifesto(codigo_barras: str, token: str, chave: str):
     return response.json()
 
 
-@app.post("/feam/mtr")
+@app.post("/feam/mtr/retorna-manifesto-codigo-de-barras")
 def buscar_mtr(dados: ConsultaMTRRequest):
     try:
         token, chave = gerar_token_feam(
