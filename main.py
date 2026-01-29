@@ -1,4 +1,5 @@
 from datetime import datetime
+from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fepam)
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -71,7 +72,7 @@ def consultar_manifesto(codigo_barras: str, token: str, chave: str):
     return response.json()
 
 
-@app.post("/feam/mtr/retorna-manifesto-codigo-de-barras")
+@app.post("/feam/retorna-manifesto-codigo-de-barras")
 def buscar_mtr(dados: ConsultaMTRRequest):
     try:
         token, chave = gerar_token_feam(
@@ -146,6 +147,32 @@ def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
 
         return {
             "sucesso": True,
+            "dados": manifesto
+        }
+
+    except HTTPException as e:
+        raise e
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+@app.post("/fepam/retorna-manifesto-codigo-de-barras")
+def fepam_retorna_manifesto(dados: ConsultaFepamManifestoRequest):
+    try:
+        manifesto = retorna_manifesto_fepam(
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+            manifesto_codigo=dados.manifestoCodigo
+        )
+
+        return {
+            "sucesso": True,
+            "orgao": "FEPAM",
             "dados": manifesto
         }
 
