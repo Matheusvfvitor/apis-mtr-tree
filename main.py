@@ -3,6 +3,7 @@ from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fep
 from services.feam import (ConsultaFeamManifestoRequest, gerar_token_feam, retorna_manifesto_feam)
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
 from services.inea import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
+from services.sinir_service import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
 
 
 from fastapi import FastAPI, HTTPException
@@ -38,7 +39,9 @@ def feam_retorna_manifesto(dados: ConsultaFeamManifestoRequest):
         raise e
 
 
-
+# =========================
+# IMA
+# =========================
 
 @app.post("/ima/retorna-manifesto-codigo-de-barras")
 def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
@@ -64,6 +67,9 @@ def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
             detail=str(e)
         )
 
+# =========================
+# FEPAM
+# =========================
 
 @app.post("/fepam/retorna-manifesto-codigo-de-barras")
 def fepam_retorna_manifesto(dados: ConsultaFepamManifestoRequest):
@@ -112,6 +118,34 @@ def inea_retorna_manifesto(dados: ConsultaIneaManifestoRequest):
 
     except HTTPException as e:
         raise e
+
+
+# =========================
+# SINIR - Federal
+# =========================
+@app.post("/sinir/retorna-manifesto")
+def sinir_retorna_manifesto(dados: ConsultaSinirManifestoRequest):
+    try:
+        token = gerar_token_sinir(
+            cpf_cnpj=dados.cpfCnpj,
+            senha=dados.senha,
+            unidade=dados.unidade
+        )
+
+        manifesto = retorna_manifesto_sinir(
+            token_bearer=token,
+            manifesto_numero=dados.manifestoNumero
+        )
+
+        return {
+            "sucesso": True,
+            "orgao": "SINIR",
+            "dados": manifesto
+        }
+
+    except HTTPException as e:
+        raise e
+
 
 
 @app.get("/healthz")
