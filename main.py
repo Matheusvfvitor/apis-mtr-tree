@@ -101,6 +101,13 @@ def buscar_mtr(dados: ConsultaMTRRequest):
         )
 
 
+class ConsultaIMAManifestoRequest(BaseModel):
+    cpf: str
+    cnpj: str
+    senha: str
+    unidadeGerador: str
+    codigoBarras: str
+
 
 def consultar_manifesto_ima(
     codigo_barras: str,
