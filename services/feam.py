@@ -46,4 +46,33 @@ def gerar_token_feam(cnpj: str, senha: str, unidade: int):
             detail=f"Falha na autenticação FEAM: {data}"
         )
 
-    return data
+    return data["token"], data["chave"]
+
+
+# =========================
+# Consulta Manifesto FEAM
+# =========================
+def retorna_manifesto_feam(
+    cnpj: str,
+    senha: str,
+    unidade: int,
+    codigo_barras: str
+):
+    token, chave = gerar_token_feam(cnpj, senha, unidade)
+
+    url = f"{FEAM_BASE_URL}/retornaManifesto/{codigo_barras}"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "chave_feam": chave
+    }
+
+    response = requests.post(url, headers=headers, timeout=30)
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail="Erro ao consultar manifesto na FEAM"
+        )
+
+    return response.json()
