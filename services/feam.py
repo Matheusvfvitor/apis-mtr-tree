@@ -203,3 +203,113 @@ def atualizar_itens_dmr(
         "status_code": response.status_code,
         "conteudo": response.text
     }
+
+import time
+import json
+from typing import Any, Dict, Optional
+
+import requests
+from requests.adapters import HTTPAdapter, Retry
+
+
+BASE_URL_LISTA_DMRS = (
+    "https://mtr.meioambiente.mg.gov.br/"
+    "br/com/brdti/mtr/controller/JqueryDatatablePluginDemo.java"
+)
+
+# =========================
+# Session com retries
+# =========================
+def _session_with_retries() -> requests.Session:
+    session = requests.Session()
+
+    retries = Retry(
+        total=5,
+        backoff_factor=0.6,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+        raise_on_status=False,
+    )
+
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    return session
+
+
+# =========================
+# Schema de entrada
+# =========================
+class ListarDMRRequest(BaseModel):
+    JSESSIONID: str
+    iDisplayStart: int = 0
+    iDisplayLength: int = 10
+    sSearch: str = ""
+    iColumns: int = 7
+    sEcho: int = 1
+    tabela: str = "DMR"
+
+
+# =========================
+# Listar DMR (DataTable)
+# =========================
+def listar_dmrs(
+    jsessionid: str,
+    i_display_start: int,
+    i_display_length: int,
+    s_search: str,
+    i_columns: int,
+    s_echo: int,
+    tabela: str,
+    timeout: int = 30,
+) -> Dict[str, Any]:
+
+    params = {
+        "tabela": tabela,
+        "sEcho": s_echo,
+        "iColumns": i_columns,
+        "sColumns": "",
+        "iDisplayStart": i_display_start,
+        "iDisplayLength": i_display_length,
+        "sSearch": s_search,
+        "_": int(time.time() * 1000),  # cache bust
+    }
+
+    cookies = {
+        "JSESSIONID": jsessionid
+    }
+
+    session = _session_with_retries()
+
+    try:
+        resp = session.get(
+            BASE_URL_LISTA_DMRS,
+            params=params,
+            cookies=cookies,
+            timeout=timeout,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação com FEAM (listar DMR): {str(e)}"
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro FEAM HTTP {resp.status_code}"
+        )
+
+    # Parsing resiliente
+    try:
+        return resp.json()
+    except json.JSONDecodeError:
+        txt = resp.text.strip()
+        try:
+            return json.loads(txt)
+        except Exception:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Resposta FEAM não-JSON: {txt[:800]}"
+            )

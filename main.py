@@ -1,6 +1,6 @@
 from datetime import datetime
 from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fepam)
-from services.feam import (AtualizarItensDMRRequest, ConsultaFeamCookiesRequest, ConsultaFeamManifestoRequest,atualizar_itens_dmr, get_cookies_feam, gerar_token_feam, retorna_manifesto_feam)
+from services.feam import (ListarDMRRequest, AtualizarItensDMRRequest, ConsultaFeamCookiesRequest, ConsultaFeamManifestoRequest,atualizar_itens_dmr, get_cookies_feam, gerar_token_feam, listar_dmrs, retorna_manifesto_feam)
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
 from services.inea import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
 from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
@@ -26,9 +26,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =========================
+
+# ================================================================================================================
 # FEAM - MG
-# =========================
+# ================================================================================================================
+
+# -------------------------
+# FEAM - MG
+# -------------------------
 @app.post("/feam/retorna-manifesto-codigo-de-barras")
 def feam_retorna_manifesto(dados: ConsultaFeamManifestoRequest):
     try:
@@ -48,9 +53,9 @@ def feam_retorna_manifesto(dados: ConsultaFeamManifestoRequest):
     except HTTPException as e:
         raise e
 
-# =========================
+# -------------------------
 # FEAM - Atualizar Itens DMR
-# =========================
+# -------------------------
 @app.post("/feam/dmr/atualizar-itens")
 def feam_atualizar_itens_dmr(dados: AtualizarItensDMRRequest):
 
@@ -81,12 +86,9 @@ def feam_atualizar_itens_dmr(dados: AtualizarItensDMRRequest):
         )
 
 
-
-
-
-# =========================
+# -------------------------
 # FEAM - Get Cookies (Selenium)
-# =========================
+# -------------------------
 @app.post("/feam/get-cookies")
 def feam_get_cookies(dados: ConsultaFeamCookiesRequest):
 
@@ -113,12 +115,45 @@ def feam_get_cookies(dados: ConsultaFeamCookiesRequest):
             detail=str(e)
         )
 
-    
+
+# -------------------------
+# FEAM - Listar DMRs
+# -------------------------
+@app.post("/feam/dmr/listar")
+def feam_listar_dmrs(dados: ListarDMRRequest):
+
+    try:
+        resultado = listar_dmrs(
+            jsessionid=dados.JSESSIONID,
+            i_display_start=dados.iDisplayStart,
+            i_display_length=dados.iDisplayLength,
+            s_search=dados.sSearch,
+            i_columns=dados.iColumns,
+            s_echo=dados.sEcho,
+            tabela=dados.tabela
+        )
+
+        return {
+            "sucesso": True,
+            "orgao": "FEAM",
+            "acao": "LISTAR_DMRS",
+            "dados": resultado
+        }
+
+    except HTTPException as e:
+        raise e
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
-# =========================
+
+# ================================================================================================================
 # IMA
-# =========================
+# ================================================================================================================
 
 @app.post("/ima/retorna-manifesto-codigo-de-barras")
 def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
