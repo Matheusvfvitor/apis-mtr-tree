@@ -4,7 +4,7 @@ from services.feam import (ConsultaFeamManifestoRequest, gerar_token_feam, retor
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
 from services.inea import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
 from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
-from services.sigor_service import (ConsultaSigorManifestoRequest, gerar_token_sigor,retorna_manifesto_sigor)
+from services.sigor import (ConsultaSigorManifestoRequest, gerar_token_sigor,retorna_manifesto_sigor)
 
 
 from fastapi import FastAPI, HTTPException
