@@ -2,6 +2,8 @@ from datetime import datetime
 from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fepam)
 from services.feam import (ConsultaFeamManifestoRequest, gerar_token_feam, retorna_manifesto_feam)
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
+from services.ima import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
+
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -87,6 +89,29 @@ def fepam_retorna_manifesto(dados: ConsultaFepamManifestoRequest):
             status_code=500,
             detail=str(e)
         )
+
+# =========================
+# INEA - RJ
+# =========================
+@app.post("/inea/retorna-manifesto-codigo-de-barras")
+def inea_retorna_manifesto(dados: ConsultaIneaManifestoRequest):
+    try:
+        manifesto = retorna_manifesto_inea(
+            cpf=dados.cpf,
+            senha=dados.senha,
+            cnpj=dados.cnpj,
+            unidade_gerador=dados.unidadeGerador,
+            codigo_barras=dados.codigoBarras
+        )
+
+        return {
+            "sucesso": True,
+            "orgao": "INEA",
+            "dados": manifesto
+        }
+
+    except HTTPException as e:
+        raise e
 
 
 @app.get("/healthz")
