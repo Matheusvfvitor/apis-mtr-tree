@@ -1,31 +1,34 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 import requests
-
+from fastapi import HTTPException
+from pydantic import BaseModel
 
 FEAM_BASE_URL = "https://mtr.meioambiente.mg.gov.br/api"
 
 
-class ConsultaMTRRequest(BaseModel):
+# =========================
+# Schema de entrada FEAM
+# =========================
+class ConsultaFeamManifestoRequest(BaseModel):
     cnpj: str
     senha: str
     unidadeGerador: int
     codigoDeBarras: str
 
 
+# =========================
+# Token FEAM
+# =========================
 def gerar_token_feam(cnpj: str, senha: str, unidade: int):
     url = f"{FEAM_BASE_URL}/gettoken"
 
     payload = {
         "pessoaCodigo": unidade,
         "pessoaCnpj": cnpj,
-        "usuarioCpf": "13280058600",  # ⚠️ Ajuste se for dinâmico no futuro
+        "usuarioCpf": "13280058600",  # manter fixo por enquanto
         "senha": senha
     }
 
-    headers = {
-        "Content-Type": "application/json"
-    }
+    headers = {"Content-Type": "application/json"}
 
     response = requests.post(url, json=payload, headers=headers, timeout=30)
 
@@ -43,25 +46,4 @@ def gerar_token_feam(cnpj: str, senha: str, unidade: int):
             detail=f"Falha na autenticação FEAM: {data}"
         )
 
-    return data["token"], data["chave"]
-
-
-def consultar_manifesto(codigo_barras: str, token: str, chave: str):
-    url = f"{FEAM_BASE_URL}/retornaManifesto/{codigo_barras}"
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "chave_feam": chave
-    }
-
-    response = requests.post(url, headers=headers, timeout=30)
-
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail="Erro ao consultar manifesto na FEAM"
-        )
-
-    return response.json()
-
-json()
+    return data
