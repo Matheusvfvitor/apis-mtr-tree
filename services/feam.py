@@ -1,3 +1,8 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import requests
+
+
 FEAM_BASE_URL = "https://mtr.meioambiente.mg.gov.br/api"
 
 
