@@ -1,3 +1,7 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import requests
+
 
 class ConsultaIMAManifestoRequest(BaseModel):
     cpf: str
