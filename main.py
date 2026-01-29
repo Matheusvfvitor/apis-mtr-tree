@@ -1,6 +1,6 @@
 from datetime import datetime
 from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fepam)
-from services.feam import (ListarDMRRequest, AtualizarItensDMRRequest, ConsultaFeamCookiesRequest, ConsultaFeamManifestoRequest,atualizar_itens_dmr, get_cookies_feam, gerar_token_feam, listar_dmrs, retorna_manifesto_feam)
+from services.feam import (BuscarDeclaracaoDMRRequest,ListarDMRRequest, AtualizarItensDMRRequest, ConsultaFeamCookiesRequest, ConsultaFeamManifestoRequest,atualizar_itens_dmr, buscar_declaracao_dmr, get_cookies_feam, gerar_token_feam, listar_dmrs, retorna_manifesto_feam)
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
 from services.inea import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
 from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
@@ -137,6 +137,35 @@ def feam_listar_dmrs(dados: ListarDMRRequest):
             "sucesso": True,
             "orgao": "FEAM",
             "acao": "LISTAR_DMRS",
+            "dados": resultado
+        }
+
+    except HTTPException as e:
+        raise e
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+# =========================
+# FEAM - Buscar Declaração DMR
+# =========================
+@app.post("/feam/dmr/buscar-declaracao")
+def feam_buscar_declaracao_dmr(dados: BuscarDeclaracaoDMRRequest):
+
+    try:
+        resultado = buscar_declaracao_dmr(
+            id_declaracao=dados.idDeclaracao,
+            condicao=dados.condicao,
+            jsessionid=dados.JSESSIONID
+        )
+
+        return {
+            "sucesso": True,
+            "orgao": "FEAM",
+            "acao": "BUSCAR_DECLARACAO_DMR",
             "dados": resultado
         }
 

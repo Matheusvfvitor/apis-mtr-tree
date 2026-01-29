@@ -313,3 +313,179 @@ def listar_dmrs(
                 status_code=502,
                 detail=f"Resposta FEAM não-JSON: {txt[:800]}"
             )
+
+import re
+import time
+import json
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import requests
+from requests.adapters import HTTPAdapter, Retry
+from bs4 import BeautifulSoup
+from fastapi import HTTPException
+from pydantic import BaseModel
+
+
+#==========================================================================================
+# BUSCA DECLARAÇÃO
+#==========================================================================================
+
+BASE_URL_DECLARACAO = "https://mtr.meioambiente.mg.gov.br/ControllerServlet"
+
+
+# =====================
+# Utils de parsing
+# =====================
+def _text(node) -> str:
+    return re.sub(r'\s+', ' ', (node.get_text(strip=True) if node else '')).strip()
+
+
+def _find_input_value(soup: BeautifulSoup, input_id: str) -> Optional[str]:
+    el = soup.select_one(f'#{re.escape(input_id)}')
+    if el and el.get('value') is not None:
+        return str(el.get('value')).strip()
+    return None
+
+
+def _ptbr_to_float(s: str) -> Optional[float]:
+    if not s:
+        return None
+    s = s.strip().replace('.', '').replace(',', '.')
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+# =====================
+# Parse HTML da DMR
+# =====================
+def parse_dmr_page(html: str) -> Dict[str, Any]:
+    soup = BeautifulSoup(html, 'lxml')
+
+    header = {
+        "tipoDeclaracao": _text(soup.select_one('#lblSemestre')) or "DMR",
+        "dataInicial": _find_input_value(soup, 'txtDataInicial') or '',
+        "dataFinal": _find_input_value(soup, 'txtDataFinal') or '',
+    }
+
+    perfil = _text(soup.select_one('#spanPerfil'))
+
+    dados_gerador = {
+        "declarantePerfil": perfil,
+        "cnpjRazaoOuCpfNome": "",
+        "telefone": "",
+        "loNumero": _find_input_value(soup, 'idLao') or "",
+        "endereco": "",
+        "fax": "",
+        "codigoAtividade": _find_input_value(soup, 'idAtividade') or "",
+        "municipio": "",
+        "estado": "",
+        "dataValidade": _find_input_value(soup, 'txtDataValidade') or "",
+        "responsavel": _find_input_value(soup, 'txtNomeResp') or "",
+        "cargoResponsavel": _find_input_value(soup, 'txtCargoResp') or "",
+        "responsavelLegal": _find_input_value(soup, 'txtNomeRespLegal') or "",
+    }
+
+    residuos: List[Dict[str, Any]] = []
+    tb = soup.select_one('#tbResiduo')
+
+    if tb:
+        for tr in tb.find_all('tr'):
+            tds = tr.find_all('td')
+            if len(tds) < 8:
+                continue
+
+            residuos.append({
+                "destinador": _text(tds[0]),
+                "denominacaoResiduos": _text(tds[1]),
+                "classe": _text(tds[2]),
+                "quantidadeDestinada": _ptbr_to_float(_text(tds[3])),
+                "quantidadeGerada": _ptbr_to_float(
+                    tds[4].find('input').get('value') if tds[4].find('input') else ''
+                ),
+                "quantidadeArmazenada": _ptbr_to_float(_text(tds[5])),
+                "unidade": _text(tds[6]),
+                "tecnologia": _text(tds[7]),
+            })
+
+    observacoes = _find_input_value(soup, 'txtObservacoes') or ''
+
+    return {
+        "cabecalho": header,
+        "dadosGerador": dados_gerador,
+        "residuos": residuos,
+        "observacoes": observacoes.strip(),
+    }
+
+
+# =====================
+# Session com retries
+# =====================
+def _session_with_retries() -> requests.Session:
+    s = requests.Session()
+    retries = Retry(
+        total=5,
+        backoff_factor=0.6,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+        raise_on_status=False,
+    )
+    s.mount("https://", HTTPAdapter(max_retries=retries))
+    s.mount("http://", HTTPAdapter(max_retries=retries))
+    return s
+
+
+# =====================
+# Schema API
+# =====================
+class BuscarDeclaracaoDMRRequest(BaseModel):
+    idDeclaracao: Union[str, int]
+    condicao: Union[str, int]
+    JSESSIONID: str
+
+
+# =====================
+# Busca + Parse da Declaração
+# =====================
+def buscar_declaracao_dmr(
+    id_declaracao: Union[str, int],
+    condicao: Union[str, int],
+    jsessionid: str,
+    timeout: int = 30,
+) -> Dict[str, Any]:
+
+    params = {
+        "acao": "buscaDeclaracao",
+        "idDeclaracao": str(id_declaracao),
+        "condicao": str(condicao),
+    }
+
+    cookies = {
+        "JSESSIONID": jsessionid
+    }
+
+    session = _session_with_retries()
+
+    try:
+        resp = session.get(
+            BASE_URL_DECLARACAO,
+            params=params,
+            cookies=cookies,
+            timeout=timeout,
+            allow_redirects=True,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação com FEAM (busca declaração): {str(e)}"
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro FEAM HTTP {resp.status_code}"
+        )
+
+    html = resp.content.decode("utf-8", errors="ignore")
+    return parse_dmr_page(html)
