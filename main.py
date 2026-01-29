@@ -9,6 +9,8 @@ from services.semad import (ConsultaSemadManifestoRequest,gerar_token_semad,reto
 
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
 from pydantic import BaseModel
 import requests
 
@@ -16,6 +18,15 @@ app = FastAPI(
     title="API FEAM - Consulta MTR",
     version="1.0.0"
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 
 # =========================
