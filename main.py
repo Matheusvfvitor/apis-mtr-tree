@@ -1,7 +1,7 @@
 from datetime import datetime
 from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fepam)
 from services.feam import (ConsultaMTRRequest, gerar_token_feam, consultar_manifesto)
-from services.ima import(ConsultaIMAManifestoRequest,retorna_manifesto_ima)
+from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
