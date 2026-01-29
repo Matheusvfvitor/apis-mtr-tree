@@ -4,6 +4,7 @@ from services.feam import (ConsultaFeamManifestoRequest, gerar_token_feam, retor
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
 from services.inea import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
 from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
+from services.sigor_service import (ConsultaSigorManifestoRequest, gerar_token_sigor,retorna_manifesto_sigor)
 
 
 from fastapi import FastAPI, HTTPException
@@ -146,6 +147,31 @@ def sinir_retorna_manifesto(dados: ConsultaSinirManifestoRequest):
     except HTTPException as e:
         raise e
 
+# =========================
+# SIGOR / CETESB - SP
+# =========================
+@app.post("/sigor/retorna-manifesto")
+def sigor_retorna_manifesto(dados: ConsultaSigorManifestoRequest):
+    try:
+        token = gerar_token_sigor(
+            cpf_cnpj=dados.cpfCnpj,
+            senha=dados.senha,
+            unidade=dados.unidade
+        )
+
+        manifesto = retorna_manifesto_sigor(
+            token_bearer=token,
+            manifesto_numero=dados.manifestoNumero
+        )
+
+        return {
+            "sucesso": True,
+            "orgao": "SIGOR",
+            "dados": manifesto
+        }
+
+    except HTTPException as e:
+        raise e
 
 
 @app.get("/healthz")
