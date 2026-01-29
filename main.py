@@ -1,6 +1,6 @@
 from datetime import datetime
 from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fepam)
-from services.feam import (ConsultaMTRRequest, gerar_token_feam, consultar_manifesto)
+from services.feam import (ConsultaFeamManifestoRequest, gerar_token_feam, consultar_manifesto)
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
 
 from fastapi import FastAPI, HTTPException
@@ -14,7 +14,7 @@ app = FastAPI(
 
 
 @app.post("/feam/retorna-manifesto-codigo-de-barras")
-def buscar_mtr(dados: ConsultaMTRRequest):
+def buscar_mtr(dados: ConsultaFeamManifestoRequest):
     try:
         token, chave = gerar_token_feam(
             cnpj=dados.cnpj,
