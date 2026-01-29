@@ -16,7 +16,7 @@ app = FastAPI(
 # =========================
 # FEAM - MG
 # =========================
-@app.post("/feam/retorna-manifesto")
+@app.post("/feam/retorna-manifesto-codigo-de-barras")
 def feam_retorna_manifesto(dados: ConsultaFeamManifestoRequest):
     try:
         manifesto = retorna_manifesto_feam(
