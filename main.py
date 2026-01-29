@@ -5,6 +5,7 @@ from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
 from services.inea import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
 from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
 from services.sigor import (ConsultaSigorManifestoRequest, gerar_token_sigor,retorna_manifesto_sigor)
+from services.semad import (ConsultaSemadManifestoRequest,gerar_token_semad,retorna_manifesto_semad)
 
 
 from fastapi import FastAPI, HTTPException
@@ -167,6 +168,33 @@ def sigor_retorna_manifesto(dados: ConsultaSigorManifestoRequest):
         return {
             "sucesso": True,
             "orgao": "SIGOR",
+            "dados": manifesto
+        }
+
+    except HTTPException as e:
+        raise e
+
+# =========================
+# SEMAD - GO
+# =========================
+@app.post("/semad/retorna-manifesto-codigo-de-barras")
+def semad_retorna_manifesto(dados: ConsultaSemadManifestoRequest):
+    try:
+        token = gerar_token_semad(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha
+        )
+
+        manifesto = retorna_manifesto_semad(
+            token=token,
+            codigo_barras=dados.codigoBarras
+        )
+
+        return {
+            "sucesso": True,
+            "orgao": "SEMAD",
             "dados": manifesto
         }
 
