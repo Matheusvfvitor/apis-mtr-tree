@@ -53,20 +53,35 @@ def feam_retorna_manifesto(dados: ConsultaFeamManifestoRequest):
 # =========================
 @app.post("/feam/dmr/atualizar-itens")
 def feam_atualizar_itens_dmr(dados: AtualizarItensDMRRequest):
-    resultado = atualizar_itens_dmr(
-        cod_declarante=dados.codDeclarante,
-        id_declaracao=dados.idDeclaracao,
-        data_inicial=dados.dataInicial,
-        data_final=dados.dataFinal,
-        jsessionid=dados.JSESSIONID
-    )
 
-    return {
-        "sucesso": True,
-        "orgao": "FEAM",
-        "acao": "ATUALIZAR_ITENS_DMR",
-        "dados": resultado
-    }
+    try:
+
+        resultado = atualizar_itens_dmr(
+            cod_declarante=dados.codDeclarante,
+            id_declaracao=dados.idDeclaracao,
+            data_inicial=dados.dataInicial,
+            data_final=dados.dataFinal,
+            jsessionid=dados.JSESSIONID
+        )
+
+        return {
+            "sucesso": True,
+            "orgao": "FEAM",
+            "acao": "ATUALIZAR_ITENS_DMR",
+            "dados": resultado
+        }
+
+    except HTTPException as e:
+        raise e
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+
 
 
 # =========================
