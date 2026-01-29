@@ -2,7 +2,7 @@ from datetime import datetime
 from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fepam)
 from services.feam import (ConsultaFeamManifestoRequest, gerar_token_feam, retorna_manifesto_feam)
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
-from services.ima import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
+from services.inea import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
 
 
 from fastapi import FastAPI, HTTPException
