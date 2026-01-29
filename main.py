@@ -74,18 +74,32 @@ def feam_atualizar_itens_dmr(dados: AtualizarItensDMRRequest):
 # =========================
 @app.post("/feam/get-cookies")
 def feam_get_cookies(dados: ConsultaFeamCookiesRequest):
-    cookies = get_cookies_feam(
-        cpf=dados.cpf,
-        cnpj=dados.cnpj,
-        unidade=dados.unidade,
-        senha=dados.senha
-    )
 
-    return {
-        "sucesso": True,
-        "orgao": "FEAM",
-        "cookies": cookies
-    }
+    try:
+        cookies = get_cookies_feam(
+            cpf=dados.cpf,
+            cnpj=dados.cnpj,
+            unidade=dados.unidade,
+            senha=dados.senha
+        )
+
+        return {
+            "sucesso": True,
+            "orgao": "FEAM",
+            "cookies": cookies
+        }
+
+    except HTTPException as e:
+        raise e
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+    
+
 
 # =========================
 # IMA
