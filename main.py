@@ -1,12 +1,11 @@
 from datetime import datetime
 from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fepam)
-from services.feam import (ConsultaFeamManifestoRequest, gerar_token_feam, retorna_manifesto_feam)
+from services.feam import (AtualizarItensDMRRequest, ConsultaFeamCookiesRequest, ConsultaFeamManifestoRequest,atualizar_itens_dmr, get_cookies_feam, gerar_token_feam, retorna_manifesto_feam)
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
 from services.inea import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
 from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
 from services.sigor import (ConsultaSigorManifestoRequest, gerar_token_sigor,retorna_manifesto_sigor)
 from services.semad import (ConsultaSemadManifestoRequest,gerar_token_semad,retorna_manifesto_semad)
-
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,8 +25,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
 
 # =========================
 # FEAM - MG
@@ -51,6 +48,44 @@ def feam_retorna_manifesto(dados: ConsultaFeamManifestoRequest):
     except HTTPException as e:
         raise e
 
+# =========================
+# FEAM - Atualizar Itens DMR
+# =========================
+@app.post("/feam/dmr/atualizar-itens")
+def feam_atualizar_itens_dmr(dados: AtualizarItensDMRRequest):
+    resultado = atualizar_itens_dmr(
+        cod_declarante=dados.codDeclarante,
+        id_declaracao=dados.idDeclaracao,
+        data_inicial=dados.dataInicial,
+        data_final=dados.dataFinal,
+        jsessionid=dados.JSESSIONID
+    )
+
+    return {
+        "sucesso": True,
+        "orgao": "FEAM",
+        "acao": "ATUALIZAR_ITENS_DMR",
+        "dados": resultado
+    }
+
+
+# =========================
+# FEAM - Get Cookies (Selenium)
+# =========================
+@app.post("/feam/get-cookies")
+def feam_get_cookies(dados: ConsultaFeamCookiesRequest):
+    cookies = get_cookies_feam(
+        cpf=dados.cpf,
+        cnpj=dados.cnpj,
+        unidade=dados.unidade,
+        senha=dados.senha
+    )
+
+    return {
+        "sucesso": True,
+        "orgao": "FEAM",
+        "cookies": cookies
+    }
 
 # =========================
 # IMA
