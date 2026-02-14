@@ -1,6 +1,13 @@
 from datetime import datetime
 from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fepam)
 from services.feam import (BuscarDeclaracaoDMRRequest,ListarDMRRequest, AtualizarItensDMRRequest, ConsultaFeamCookiesRequest, ConsultaFeamManifestoRequest,atualizar_itens_dmr, buscar_declaracao_dmr, get_cookies_feam, gerar_token_feam, listar_dmrs, retorna_manifesto_feam)
+from services.feam import(buscar_armazenador_feam, buscar_destino_feam, buscar_transportador_feam)
+from services.ima import (buscar_armazenador_ima, buscar_destino_ima, buscar_transportador_ima)
+from services.fepam import (buscar_armazenador_fepam, buscar_destino_fepam, buscar_transportador_fepam)
+from services.sigor import (retorna_dados_armazenador_sigor, retorna_dados_destino_sigor, retorna_dados_transportador_sigor)
+from services.sinir import (retorna_dados_transportador_sinir, retorna_dados_armazenador_sinir, retorna_dados_destino_sinir)
+from services.semad import (buscar_armazenador_semad, buscar_destino_semad, buscar_transportador_semad)
+
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
 from services.inea import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
 from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
@@ -26,6 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class BuscaParceiro(BaseModel):
+    cnpj: str
+    tipoParceiro: str
 
 # ================================================================================================================
 # FEAM - MG
@@ -179,6 +189,21 @@ def feam_buscar_declaracao_dmr(dados: BuscarDeclaracaoDMRRequest):
         )
 
 
+@app.post("feam/busca-parceiro")
+def feam_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or "").strip().lower()
+
+    if tipo == "destino":
+        resultado = buscar_destino_feam(dados.cnpj)
+    elif tipo == "transportador":
+        resultado = buscar_transportador_feam(dados.cnpj)
+    elif tipo == "armazenador":
+        resultado = buscar_armazenador_feam(dados.cnpj)
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
+
+    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
+        
 
 # ================================================================================================================
 # IMA
@@ -207,6 +232,21 @@ def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
             status_code=500,
             detail=str(e)
         )
+
+@app.post("ima/busca-parceiro")
+def ima_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or "").strip().lower()
+
+    if tipo == "destino":
+        resultado = buscar_destino_ima(dados.cnpj)
+    elif tipo == "transportador":
+        resultado = buscar_transportador_ima(dados.cnpj)
+    elif tipo == "armazenador":
+        resultado = buscar_armazenador_ima(dados.cnpj)
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
+
+    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
 
 # =========================
 # FEPAM
@@ -237,6 +277,22 @@ def fepam_retorna_manifesto(dados: ConsultaFepamManifestoRequest):
             detail=str(e)
         )
 
+
+@app.post("ima/busca-parceiro")
+def fepam_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or "").strip().lower()
+
+    if tipo == "destino":
+        resultado = buscar_destino_fepam(dados.cnpj)
+    elif tipo == "transportador":
+        resultado = buscar_transportador_fepam(dados.cnpj)
+    elif tipo == "armazenador":
+        resultado = buscar_armazenador_fepam(dados.cnpj)
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
+
+    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
+
 # =========================
 # INEA - RJ
 # =========================
@@ -259,6 +315,8 @@ def inea_retorna_manifesto(dados: ConsultaIneaManifestoRequest):
 
     except HTTPException as e:
         raise e
+
+
 
 
 # =========================
@@ -287,6 +345,22 @@ def sinir_retorna_manifesto(dados: ConsultaSinirManifestoRequest):
     except HTTPException as e:
         raise e
 
+@app.post("sinir/busca-parceiro")
+def sinir_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or "").strip().lower()
+
+    if tipo == "destino":
+        resultado = retorna_dados_destino_sinir(dados.cnpj)
+    elif tipo == "transportador":
+        resultado = retorna_dados_transportador_sinir(dados.cnpj)
+    elif tipo == "armazenador":
+        resultado = retorna_dados_armazenador_sinir(dados.cnpj)
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
+
+    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
+
+
 # =========================
 # SIGOR / CETESB - SP
 # =========================
@@ -312,6 +386,22 @@ def sigor_retorna_manifesto(dados: ConsultaSigorManifestoRequest):
 
     except HTTPException as e:
         raise e
+
+@app.post("/sigor/busca-parceiro")
+def sigor_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or "").strip().lower()
+
+    if tipo == "destino":
+        resultado = retorna_dados_destino_sigor(dados.cnpj)
+    elif tipo == "transportador":
+        resultado = retorna_dados_transportador_sigor(dados.cnpj)
+    elif tipo == "armazenador":
+        resultado = retorna_dados_armazenador_sigor(dados.cnpj)
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
+
+    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
+
 
 # =========================
 # SEMAD - GO
@@ -339,6 +429,22 @@ def semad_retorna_manifesto(dados: ConsultaSemadManifestoRequest):
 
     except HTTPException as e:
         raise e
+
+@app.post("/semad/busca-parceiro")
+def semad_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or "").strip().lower()
+
+    if tipo == "destino":
+        resultado = buscar_destino_semad(dados.cnpj)
+    elif tipo == "transportador":
+        resultado = buscar_transportador_semad(dados.cnpj)
+    elif tipo == "armazenador":
+        resultado = buscar_armazenador_semad(dados.cnpj)
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
+
+    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
+
 
 
 @app.get("/healthz")

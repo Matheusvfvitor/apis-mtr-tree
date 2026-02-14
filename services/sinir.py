@@ -1,6 +1,7 @@
 import requests
 from fastapi import HTTPException
 from pydantic import BaseModel
+import json
 
 SINIR_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
 
@@ -61,7 +62,40 @@ def gerar_token_sinir(cpf_cnpj: str, senha: str, unidade: str) -> str:
     # objetoResposta já vem como: "Bearer xxxxx"
     return data["objetoResposta"]
 
+# ==================================================
+# LOGIN NÃO OFICIAL
+# ==================================================
 
+def login_nao_oficial_sinir():
+    
+    print('login sinir api não oficial...')
+
+    try:
+        url = "https://mtr.sinir.gov.br/api/mtr/login"
+        
+        payload = json.dumps({
+            "parCodigo": 490976,
+            "login": "04304532642",
+            "senha": "Sinir@2601"
+        })
+        
+        headers = {'Content-Type': 'application/json'}
+
+        response = requests.request("POST", url, headers=headers, data=payload)
+        
+        response = response.json()
+        objetoResposta = response.get('objetoResposta')
+        token = objetoResposta.get('token')
+        
+        return token
+    
+    except requests.RequestException as e:
+        
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação com o SIGOR (manifesto): {str(e)}"
+        )
+    
 # =========================
 # Passo 2 - Retorna Manifesto
 # =========================
@@ -94,3 +128,66 @@ def retorna_manifesto_sinir(
         )
 
     return response.json()
+
+# ==================================================
+# Retorna Dados Transportador
+# ==================================================
+
+def retorna_dados_transportador_sinir(cnpj):
+    print('\nretornando dados do transportador')
+
+    token = login_nao_oficial_sinir()
+    url = f"https://mtr.sinir.gov.br/api/mtr/pesquisaParceiro/5/{cnpj}"
+
+    payload = {}
+    headers = {
+    'Authorization': f'Bearer {token}'
+    }
+
+    response = requests.request("GET", url, headers=headers, data=payload)
+    print(response.text)
+    return response.text
+
+# ==================================================
+# Retorna Dados Destino
+# ==================================================
+
+def retorna_dados_destino_sinir(cnpj):
+    print('\nretornando dados do destino')
+
+    token = login_nao_oficial_sinir()
+
+    url = f"https://mtr.sinir.gov.br/api/mtr/pesquisaParceiro/9/{cnpj}"
+
+    payload = {}
+    headers = {
+    'Authorization': f'Bearer {token}'
+    }
+
+    response = requests.request("GET", url, headers=headers, data=payload)
+    print(response.text)
+    return response.text
+
+# ==================================================
+# Retorna Dados Armazenador
+# ==================================================
+
+def retorna_dados_armazenador_sinir(cnpj):
+    
+    print('\n... retornando dados do armazenador')
+    token = login_nao_oficial_sinir()
+
+    url = f"https://mtr.sinir.gov.br/api/mtr/pesquisaParceiro/10/{cnpj}"
+
+    payload = {}
+    headers = {
+    'Authorization': f'Bearer {token}'
+    }
+
+    response = requests.request("GET", url, headers=headers, data=payload)
+    print(response.text)
+    return response.text
+
+#retorna_dados_armazenador('50891995000104')
+#retorna_dados_transportador('39228967000160')
+#retorna_dados_destino('50891995000104')

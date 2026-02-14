@@ -4,5 +4,6 @@ requests
 pydantic
 beautifulsoup4
 lxml
+json
 
 

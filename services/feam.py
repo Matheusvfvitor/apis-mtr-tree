@@ -489,3 +489,143 @@ def buscar_declaracao_dmr(
 
     html = resp.content.decode("utf-8", errors="ignore")
     return parse_dmr_page(html)
+
+
+
+#==========================================================================================
+# BUSCA PARCEIROS
+#==========================================================================================
+
+# =====================
+# Busca Transportador
+# =====================
+
+def buscar_transportador_feam(cnpj):
+    print('\n ==== BUSCANDO TRANSPORTADOR FEAM ====== ')
+    
+    cookies = get_cookies_feam('04304532642','39228967000160', '201050', 'T2m@2024')
+    print('cookies', cookies)
+    
+    params = {
+    "acao": "buscaPessoaPorTipo",
+    "cnpj": str(cnpj),
+    "tipoPessoa": str(2),
+    }
+    
+    session = _session_with_retries()
+    timeout: int = 30
+    
+    try:
+        resp = session.post(
+            'https://mtr.meioambiente.mg.gov.br/ControllerServlet',
+            params=params,
+            cookies=cookies,
+            timeout=timeout,
+            allow_redirects=True,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação com FEAM (busca declaração): {str(e)}"
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro FEAM HTTP {resp.status_code}"
+        )
+        
+    print(resp.json())
+    print('======================================= ')
+
+          
+# =====================
+# Busca Armazenador
+# =====================
+
+def buscar_armazenador_feam(cnpj):
+    print('\n ==== BUSCANDO ARMAZENADOR FEAM ====== ')
+    
+    cookies = get_cookies_feam('04304532642','39228967000160', '201050', 'T2m@2024')
+    print('cookies', cookies)
+    
+    params = {
+    "acao": "buscaPessoaPorTipo",
+    "cnpj": str(cnpj),
+    "tipoPessoa": str(2),
+    "codigoUnidade": "",
+    "armazenador": "S"
+    }
+    
+    session = _session_with_retries()
+    timeout: int = 30
+    
+    try:
+        resp = session.post(
+            'https://mtr.meioambiente.mg.gov.br/ControllerServlet',
+            params=params,
+            cookies=cookies,
+            timeout=timeout,
+            allow_redirects=True,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação com FEAM (busca declaração): {str(e)}"
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro FEAM HTTP {resp.status_code}"
+        )
+        
+    print(resp.json())
+    print('===================================== ')
+
+# =====================
+# Busca Destino
+# =====================
+
+def buscar_destino_feam(cnpj):
+    print('\n ==== BUSCANDO DESTINO FEAM ====== ')
+    
+    cookies = get_cookies_feam('04304532642','39228967000160', '201050', 'T2m@2024')
+    print('cookies', cookies)
+    
+    params = {
+    "acao": "buscaPessoaPorTipo",
+    "cnpj": str(cnpj),
+    "tipoPessoa": str(4),
+    }
+    
+    session = _session_with_retries()
+    timeout: int = 30
+    
+    try:
+        resp = session.post(
+            'https://mtr.meioambiente.mg.gov.br/ControllerServlet',
+            params=params,
+            cookies=cookies,
+            timeout=timeout,
+            allow_redirects=True,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação com FEAM (busca declaração): {str(e)}"
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro FEAM HTTP {resp.status_code}"
+        )
+        
+    print(resp.json())
+    print('================================= ')
+            
+
+#buscar_transportador_feam('39228967000160')
+#buscar_armazenador_feam('39228967000160')
+#buscar_destino_feam('10880302000155')
