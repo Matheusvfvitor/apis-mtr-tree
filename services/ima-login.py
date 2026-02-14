@@ -115,4 +115,4 @@ def ima_login(cnpj: str, senha: str, unidadeCodigo: str = "", cpf: str = ""):
             pass
 
         
-ima_login('39.228.967/0001-60','5099ea', '','043.045.326-42')
+#ima_login('39.228.967/0001-60','5099ea', '','043.045.326-42')S

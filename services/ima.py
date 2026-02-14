@@ -306,6 +306,6 @@ def login_ima():
 
 
 #autenticar_e_obter_cookies('39228967000160','5099ea','04304532642',"")
-buscar_transportador_ima('39228967000160')
-buscar_destino_ima('43059086000130')
-buscar_armazenador_ima('04647090002020')
+#buscar_transportador_ima('39228967000160')
+#buscar_destino_ima('43059086000130')
+#Sbuscar_armazenador_ima('04647090002020')

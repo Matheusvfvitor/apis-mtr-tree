@@ -121,5 +121,3 @@ def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = ""
 
     return s
 
-login_inea_session('39228967000160','13280058600','T2m@2024','15314')
-

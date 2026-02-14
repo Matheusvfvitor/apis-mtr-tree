@@ -299,6 +299,6 @@ def buscar_destino_fepam(cnpj):
 
 
 
-buscar_transportador_fepam('19775328000108')
-buscar_armazenador_fepam('80415771000189')
-buscar_destino_fepam('80415771000189')
+#buscar_transportador_fepam('19775328000108')
+#buscar_armazenador_fepam('80415771000189')
+#buscar_destino_fepam('80415771000189')
