@@ -189,7 +189,7 @@ def feam_buscar_declaracao_dmr(dados: BuscarDeclaracaoDMRRequest):
         )
 
 
-@app.post("feam/busca-parceiro")
+@app.post("/feam/busca-parceiro")
 def feam_buscar_parceiro(dados: BuscaParceiro):
     tipo = (dados.tipoParceiro or "").strip().lower()
 
@@ -233,7 +233,7 @@ def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
             detail=str(e)
         )
 
-@app.post("ima/busca-parceiro")
+@app.post("/ima/busca-parceiro")
 def ima_buscar_parceiro(dados: BuscaParceiro):
     tipo = (dados.tipoParceiro or "").strip().lower()
 
@@ -278,7 +278,7 @@ def fepam_retorna_manifesto(dados: ConsultaFepamManifestoRequest):
         )
 
 
-@app.post("ima/busca-parceiro")
+@app.post("/ima/busca-parceiro")
 def fepam_buscar_parceiro(dados: BuscaParceiro):
     tipo = (dados.tipoParceiro or "").strip().lower()
 
@@ -345,7 +345,7 @@ def sinir_retorna_manifesto(dados: ConsultaSinirManifestoRequest):
     except HTTPException as e:
         raise e
 
-@app.post("sinir/busca-parceiro")
+@app.post("/sinir/busca-parceiro")
 def sinir_buscar_parceiro(dados: BuscaParceiro):
     tipo = (dados.tipoParceiro or "").strip().lower()
 
