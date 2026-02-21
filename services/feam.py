@@ -536,6 +536,7 @@ def buscar_transportador_feam(cnpj):
         )
         
     print(resp.json())
+    return resp.json()
     print('======================================= ')
 
           
@@ -582,7 +583,7 @@ def buscar_armazenador_feam(cnpj):
         
     print(resp.json())
     print('===================================== ')
-
+    return resp.json()
 # =====================
 # Busca Destino
 # =====================
@@ -624,6 +625,7 @@ def buscar_destino_feam(cnpj):
         
     print(resp.json())
     print('================================= ')
+    return resp.json()
             
 
 #buscar_transportador_feam('39228967000160')
