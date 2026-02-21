@@ -278,7 +278,7 @@ def fepam_retorna_manifesto(dados: ConsultaFepamManifestoRequest):
         )
 
 
-@app.post("/ima/busca-parceiro")
+@app.post("/fepam/busca-parceiro")
 def fepam_buscar_parceiro(dados: BuscaParceiro):
     tipo = (dados.tipoParceiro or "").strip().lower()
 
