@@ -66,7 +66,7 @@ def gerar_token_sinir(cpf_cnpj: str, senha: str, unidade: str) -> str:
 # LOGIN NÃO OFICIAL
 # ==================================================
 
-def login_nao_oficial_sinir():
+def login_nao_oficial_sinir(login: str = "04304532642", senha: str = "Sinir@2601", parCodigo: int = 490976):
     
     print('login sinir api não oficial...')
 
@@ -74,9 +74,9 @@ def login_nao_oficial_sinir():
         url = "https://mtr.sinir.gov.br/api/mtr/login"
         
         payload = json.dumps({
-            "parCodigo": 490976,
-            "login": "04304532642",
-            "senha": "Sinir@2601"
+            "parCodigo": parCodigo,
+            "login": login,
+            "senha": senha
         })
         
         headers = {'Content-Type': 'application/json'}
@@ -191,3 +191,28 @@ def retorna_dados_armazenador_sinir(cnpj):
 #retorna_dados_armazenador('50891995000104')
 #retorna_dados_transportador('39228967000160')
 #retorna_dados_destino('50891995000104')
+
+
+
+# ==================================================
+# BUSCA MODELOS 
+# ==================================================  
+def busca_modelos_sinir(login: str = "04304532642", senha: str = "Sinir@2601", parCodigo: int = 490976):
+    print('\n... buscando modelos')
+
+    token = login_nao_oficial_sinir()
+    
+    print('token:', token)
+
+    url = f"https://mtr.sinir.gov.br/api/mtr/manifestoModelo/{parCodigo}"
+
+    payload = {}
+    headers = {
+    'Authorization': f'Bearer {token}'
+    }
+
+    response = requests.request("GET", url, headers=headers, data=payload)
+    print(response.text)
+    return response.text
+
+busca_modelos_sinir(senha='$Thjrwgf02', parCodigo='386496', login='04304532642')
