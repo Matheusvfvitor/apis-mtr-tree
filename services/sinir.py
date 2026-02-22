@@ -5,6 +5,13 @@ import json
 
 SINIR_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
 
+# =========================
+# Schema de entrada SINIR Busca Modelo
+# =========================
+class ConsultaSinirModeloRequest(BaseModel):
+    cpfCnpj: str
+    senha: str
+    parCodigo: int
 
 # =========================
 # Schema de entrada SINIR
@@ -215,4 +222,3 @@ def busca_modelos_sinir(login: str = "04304532642", senha: str = "Sinir@2601", p
     print(response.text)
     return response.text
 
-busca_modelos_sinir(senha='$Thjrwgf02', parCodigo='386496', login='04304532642')

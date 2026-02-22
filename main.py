@@ -14,8 +14,8 @@ from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, re
 from services.sigor import (ConsultaSigorManifestoRequest, gerar_token_sigor,retorna_manifesto_sigor)
 from services.semad import (ConsultaSemadManifestoRequest,gerar_token_semad,retorna_manifesto_semad)
 
-from services.sinir import busca_modelos_sinir
-
+from services.sinir import (busca_modelos_sinir, ConsultaSinirModeloRequest
+)
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -363,12 +363,12 @@ def sinir_buscar_parceiro(dados: BuscaParceiro):
     return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
 
 @app.post("/sinir/busca-modelos")
-def sinir_buscar_modelos(dados: ConsultaSinirManifestoRequest):
+def sinir_buscar_modelos(dados: ConsultaSinirModeloRequest):
     try:
         modelos = busca_modelos_sinir(
             login=dados.cpfCnpj,
             senha=dados.senha,
-            parCodigo=dados.unidade
+            parCodigo=dados.parCodigo
         )
 
         return {
