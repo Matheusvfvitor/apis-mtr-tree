@@ -341,15 +341,20 @@ async def salvar_manifesto_inea_route(request: Request):
 
         data = await request.json()
         logger.info(f"Body recebido na rota: {json.dumps(data, ensure_ascii=False)}")
+        print(f"Body recebido na rota: {json.dumps(data, ensure_ascii=False)}")
 
         url = data.get("url")
         manifesto = data.get("manifesto")
 
-        logger.info(f"URL recebida: {url}")
-        logger.info(f"Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}")
+        logger.info(f" URL recebida: {url}")
+        logger.info(f" Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}")
+        print(f" ✅ URL recebida: {url}")
+        print(f" ✅ Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}")
 
         if not url or manifesto is None:
-            logger.warning("Campos url e manifesto são obrigatórios")
+            logger.warning(" ⚠️ Campos url e manifesto são obrigatórios")
+            print(" ⚠️ Campos url e manifesto são obrigatórios")
+
             raise HTTPException(
                 status_code=400,
                 detail="Campos url e manifesto são obrigatórios"
@@ -357,8 +362,13 @@ async def salvar_manifesto_inea_route(request: Request):
 
         response_inea = salvar_manifesto_inea(url, manifesto)
 
-        logger.info(f"Status retornado pelo INEA: {response_inea.status_code}")
-        logger.info(f"Body retornado pelo INEA: {response_inea.text}")
+        logger.info(f" ✅ Status retornado pelo INEA: {response_inea.status_code}")
+        logger.info(f" ✅ Body retornado pelo INEA: {response_inea.text}")
+        
+        
+        print(f" ✅ Status retornado pelo INEA: {response_inea.status_code}")
+        print(f"✅ Body retornado pelo INEA: {response_inea.text}")
+
 
         return Response(
             content=response_inea.text,
@@ -370,6 +380,8 @@ async def salvar_manifesto_inea_route(request: Request):
         raise
     except Exception as error:
         logger.exception("Erro inesperado na rota /inea/salvarManifesto")
+        print(" ❌ Erro inesperado na rota /inea/salvarManifesto")
+        
 
         return Response(
             content=json.dumps(
@@ -537,6 +549,6 @@ def semad_buscar_parceiro(dados: BuscaParceiro):
 def healthcheck():
     return {
         "status": "ok",
-        "service": "api-feam-mtr",
+        "service": "tree-apis",
         "timestamp": datetime.utcnow().isoformat() + "Z"
     }
