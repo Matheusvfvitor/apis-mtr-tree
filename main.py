@@ -14,13 +14,19 @@ from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, re
 from services.sigor import (ConsultaSigorManifestoRequest, gerar_token_sigor,retorna_manifesto_sigor)
 from services.semad import (ConsultaSemadManifestoRequest,gerar_token_semad,retorna_manifesto_semad)
 
+from services.inea import (salvar_manifesto_inea)
+
 from services.sinir import (busca_modelos_sinir, ConsultaSinirModeloRequest
 )
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Request, HTTPException
+from fastapi.responses import Response
 
 from pydantic import BaseModel
 import requests
+import json
 
 app = FastAPI(
     title="API FEAM - Consulta MTR",
@@ -318,7 +324,39 @@ def inea_retorna_manifesto(dados: ConsultaIneaManifestoRequest):
     except HTTPException as e:
         raise e
 
+@app.post('/inea/salvarManifesto')
+async def salvar_manifesto_inea_route(request: Request):
+    try:
+        data = await request.json()
 
+        url = data.get("url")
+        manifesto = data.get("manifesto")
+
+        if not url or manifesto is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Campos url e manifesto são obrigatórios"
+            )
+
+        response_inea = salvar_manifesto_inea(url, manifesto)
+
+        return Response(
+            content=response_inea.text,
+            status_code=response_inea.status_code,
+            media_type="application/json"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as error:
+        return Response(
+            content=json.dumps(
+                {"ok": False, "error": str(error)},
+                ensure_ascii=False
+            ),
+            status_code=500,
+            media_type="application/json"
+        )
 
 
 # =========================

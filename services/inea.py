@@ -2,6 +2,10 @@ import requests
 from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import Dict, Tuple, Optional, Union, Any
+from fastapi import FastAPI, Request, HTTPException
+import json
+
+
 
 
 INEA_BASE_URL = "http://mtr.inea.rj.gov.br/api"
@@ -15,6 +19,9 @@ class ConsultaIneaManifestoRequest(BaseModel):
     cnpj: str
     unidadeGerador: str
     codigoBarras: str
+
+
+
 
 
 # =========================
@@ -121,3 +128,23 @@ def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = ""
 
     return s
 
+def salvar_manifesto_inea(url, manifesto):
+    payload = json.dumps(manifesto, ensure_ascii=False)
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    response_inea = requests.post(
+        url,
+        headers=headers,
+        data=payload,
+        timeout=60
+    )
+
+    return response_inea
+
+
+# =============
+# HELPERS
+# =============
