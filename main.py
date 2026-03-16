@@ -27,6 +27,13 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 import requests
 import json
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
+
 
 app = FastAPI(
     title="API FEAM - Consulta MTR",
@@ -326,19 +333,32 @@ def inea_retorna_manifesto(dados: ConsultaIneaManifestoRequest):
 
 @app.post('/inea/salvarManifesto')
 async def salvar_manifesto_inea_route(request: Request):
+    logger = logging.getLogger("inea")
+    logger.setLevel(logging.INFO)
+
     try:
+        logger.info("Iniciando rota /inea/salvarManifesto")
+
         data = await request.json()
+        logger.info(f"Body recebido na rota: {json.dumps(data, ensure_ascii=False)}")
 
         url = data.get("url")
         manifesto = data.get("manifesto")
 
+        logger.info(f"URL recebida: {url}")
+        logger.info(f"Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}")
+
         if not url or manifesto is None:
+            logger.warning("Campos url e manifesto são obrigatórios")
             raise HTTPException(
                 status_code=400,
                 detail="Campos url e manifesto são obrigatórios"
             )
 
         response_inea = salvar_manifesto_inea(url, manifesto)
+
+        logger.info(f"Status retornado pelo INEA: {response_inea.status_code}")
+        logger.info(f"Body retornado pelo INEA: {response_inea.text}")
 
         return Response(
             content=response_inea.text,
@@ -349,6 +369,8 @@ async def salvar_manifesto_inea_route(request: Request):
     except HTTPException:
         raise
     except Exception as error:
+        logger.exception("Erro inesperado na rota /inea/salvarManifesto")
+
         return Response(
             content=json.dumps(
                 {"ok": False, "error": str(error)},
@@ -358,6 +380,13 @@ async def salvar_manifesto_inea_route(request: Request):
             media_type="application/json"
         )
 
+def mascarar_manifesto(manifesto):
+    manifesto_safe = dict(manifesto)
+    if "login" in manifesto_safe:
+        manifesto_safe["login"] = "***"
+    if "senha" in manifesto_safe:
+        manifesto_safe["senha"] = "***"
+    return manifesto_safe
 
 # =========================
 # SINIR - Federal

@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import Dict, Tuple, Optional, Union, Any
 from fastapi import FastAPI, Request, HTTPException
 import json
-
+import logging
 
 
 
@@ -128,12 +128,22 @@ def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = ""
 
     return s
 
+logger = logging.getLogger("inea")
+logger.setLevel(logging.INFO)
+
+
 def salvar_manifesto_inea(url, manifesto):
+    logger.info("Iniciando função salvar_manifesto_inea")
+
     payload = json.dumps(manifesto, ensure_ascii=False)
+    logger.info(f"Payload serializado enviado ao INEA: {payload}")
 
     headers = {
         "Content-Type": "application/json"
     }
+
+    logger.info(f"Headers enviados ao INEA: {headers}")
+    logger.info(f"URL de destino: {url}")
 
     response_inea = requests.post(
         url,
@@ -141,6 +151,9 @@ def salvar_manifesto_inea(url, manifesto):
         data=payload,
         timeout=60
     )
+
+    logger.info(f"Resposta status code INEA: {response_inea.status_code}")
+    logger.info(f"Resposta body INEA: {response_inea.text}")
 
     return response_inea
 
