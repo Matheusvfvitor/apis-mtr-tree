@@ -16,8 +16,8 @@ from services.semad import (ConsultaSemadManifestoRequest,gerar_token_semad,reto
 
 from services.inea import (salvar_manifesto_inea)
 
-from services.sinir import (busca_modelos_sinir, ConsultaSinirModeloRequest
-)
+from services.sinir import (busca_modelos_sinir, ConsultaSinirModeloRequest)
+from services.sigor import (busca_modelos_sigor, ConsultaSigorModeloRequest)
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -500,6 +500,23 @@ def sigor_buscar_parceiro(dados: BuscaParceiro):
 
     return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
 
+@app.post("/sigor/busca-modelos")
+def sigor_buscar_modelos(dados: ConsultaSigorModeloRequest):
+    try:
+        modelos = busca_modelos_sigor(
+            login=dados.cpfCnpj,
+            senha=dados.senha,
+            parCodigo=dados.parCodigo
+        )
+
+        return {
+            "sucesso": True,
+            "orgao": "SIGOR",
+            "dados": modelos
+        }
+
+    except HTTPException as e:
+        raise e
 
 # =========================
 # SEMAD - GO

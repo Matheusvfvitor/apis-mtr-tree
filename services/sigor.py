@@ -15,6 +15,11 @@ class ConsultaSigorManifestoRequest(BaseModel):
     unidade: str
     manifestoNumero: str
 
+
+class ConsultaSigorModeloRequest(BaseModel):
+    cpfCnpj: str
+    senha: str
+    parCodigo: int
 # ==================================================
 # Passo 1 - Get Token SIGOR
 # ==================================================
@@ -193,3 +198,23 @@ def retorna_dados_armazenador_sigor(cnpj):
     return response.text
 
 
+# ==================================================
+# BUSCA MODELOS 
+# ==================================================  
+def busca_modelos_sigor(login: str = "04304532642", senha: str = "Tree@2025", parCodigo: int = 69122):
+    print('\n... buscando modelos')
+
+    token = login_nao_oficial()
+    
+    print('token:', token)
+
+    url = f"https://mtrr.cetesb.sp.gov.br/api/mtr/manifestoModelo/{parCodigo}"
+
+    payload = {}
+    headers = {
+    'Authorization': f'Bearer {token}'
+    }
+
+    response = requests.request("GET", url, headers=headers, data=payload)
+    print(response.text)
+    return response.text
