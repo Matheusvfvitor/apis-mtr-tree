@@ -643,7 +643,6 @@ def retorna_manifesto_inea(
 INEA_BASE = "https://mtr.inea.rj.gov.br"
 LOGIN_URL = f"{INEA_BASE}/ControllerServlet"
 
-
 # ----------------------------
 # Utils de logging (SSE)
 # ----------------------------
@@ -657,7 +656,6 @@ def sse_event(event: str, data: Any) -> str:
         data = json.dumps(data, ensure_ascii=False)
     # SSE format: event: <name>\ndata: <payload>\n\n
     return f"event: {event}\ndata: {data}\n\n"
-
 
 # ----------------------------
 # Login (requests/session)
