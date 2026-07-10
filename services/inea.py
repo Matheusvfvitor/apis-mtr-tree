@@ -25,16 +25,20 @@ INEA_WORKAROUND_ENABLED = (
     in {"true", "1", "yes", "on"}
 )
 
+INEA_RELAY_KEY = os.getenv(
+    "INEA_RELAY_KEY",
+    "",
+).strip()
+
+INEA_ALLOWED_HOSTS = {
+    "mtr.inea.rj.gov.br",
+}
+
 INEA_RELAY_URL = (
     os.getenv("INEA_RELAY_URL", "")
     .strip()
     .rstrip("/")
 )
-
-INEA_RELAY_KEY = os.getenv(
-    "INEA_RELAY_KEY",
-    "",
-).strip()
 
 
 
@@ -75,38 +79,54 @@ def validar_url_download_manifesto_inea(
     url: str,
 ) -> tuple[str, str]:
     """
-    Valida a URL de download do PDF do manifesto.
+    Valida exclusivamente a URL original do INEA.
 
     Estrutura esperada:
-
     /api/buscaPdfManifestoPorCodigoBarras/
     {cpf}/{senha}/{cnpj}/{unidade}/{codigoDeBarras}
     """
 
     try:
         parsed_url = urlparse(url)
-    except Exception as error:
+        parsed_port = parsed_url.port
+
+    except ValueError as error:
         raise HTTPException(
             status_code=400,
-            detail=f"URL inválida: {str(error)}",
+            detail=f"URL ou porta inválida: {str(error)}",
         )
 
-    if parsed_url.scheme != "https":
+    if parsed_url.scheme.lower() != "https":
         raise HTTPException(
             status_code=400,
             detail="A URL do INEA deve utilizar HTTPS.",
         )
 
-    if parsed_url.hostname != INEA_BASE_URL:
+    hostname = (parsed_url.hostname or "").strip().lower()
+
+    if hostname not in INEA_ALLOWED_HOSTS:
+        logger.warning(
+            "[API INEA] Host recusado na validação | "
+            "host_recebido=%s | hosts_permitidos=%s",
+            hostname,
+            sorted(INEA_ALLOWED_HOSTS),
+        )
+
         raise HTTPException(
             status_code=403,
             detail="Host da API INEA não autorizado.",
         )
 
-    if parsed_url.port not in (None, 443):
+    if parsed_port not in (None, 443):
         raise HTTPException(
             status_code=403,
             detail="Porta da API INEA não autorizada.",
+        )
+
+    if parsed_url.username or parsed_url.password:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL não pode conter credenciais no host.",
         )
 
     if parsed_url.query or parsed_url.fragment:
@@ -121,19 +141,11 @@ def validar_url_download_manifesto_inea(
         if parte
     ]
 
-    # Estrutura:
-    # 0: api
-    # 1: buscaPdfManifestoPorCodigoBarras
-    # 2: cpf
-    # 3: senha
-    # 4: cnpj
-    # 5: unidade
-    # 6: codigoDeBarras
     if len(partes) != 7:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Estrutura da URL inválida. Esperado: "
+                "Estrutura inválida. Esperado: "
                 "/api/buscaPdfManifestoPorCodigoBarras/"
                 "{cpf}/{senha}/{cnpj}/{unidade}/{codigoDeBarras}"
             ),
@@ -145,29 +157,39 @@ def validar_url_download_manifesto_inea(
             detail="Prefixo da API INEA inválido.",
         )
 
-    endpoint = partes[1]
-
-    if endpoint != "buscaPdfManifestoPorCodigoBarras":
+    if partes[1] != "buscaPdfManifestoPorCodigoBarras":
         raise HTTPException(
             status_code=403,
-            detail=f"Endpoint não autorizado: {endpoint}",
+            detail=f"Endpoint não autorizado: {partes[1]}",
         )
 
+    cpf = partes[2]
+    cnpj = partes[4]
+    unidade = partes[5]
     codigo_barras = partes[6]
+
+    if not cpf.isdigit() or len(cpf) != 11:
+        raise HTTPException(
+            status_code=400,
+            detail="CPF de acesso inválido.",
+        )
+
+    if not cnpj.isdigit() or len(cnpj) not in (11, 14):
+        raise HTTPException(
+            status_code=400,
+            detail="CNPJ ou CPF da unidade inválido.",
+        )
+
+    if not unidade.isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail="Código da unidade inválido.",
+        )
 
     if not codigo_barras.isdigit():
         raise HTTPException(
             status_code=400,
-            detail="O código de barras deve conter somente números.",
-        )
-
-    if len(codigo_barras) != 34:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Código de barras inválido. "
-                "O código deve possuir 34 posições."
-            ),
+            detail="Código de barras inválido.",
         )
 
     partes_mascaradas = partes.copy()
@@ -175,8 +197,7 @@ def validar_url_download_manifesto_inea(
     partes_mascaradas[3] = "***SENHA***"
 
     url_mascarada = (
-        f"{parsed_url.scheme}://"
-        f"{parsed_url.hostname}/"
+        f"https://{hostname}/"
         f"{'/'.join(partes_mascaradas)}"
     )
 
