@@ -662,18 +662,13 @@ def download_manifesto_inea(url: str) -> requests.Response:
             )
 
             response_inea = requests.post(
-                url=relay_endpoint,
+                url=url,
                 headers={
-                    "Accept": "application/pdf, application/json, */*",
-                    "Content-Type": "application/json",
-                    "X-Tree-Relay-Key": INEA_RELAY_KEY,
-                    "User-Agent": "Tree-ESG-API/1.0",
+                    "Accept": "application/pdf, application/octet-stream, */*",
+                    "User-Agent": "Tree-ESG-Local-Relay/1.0",
                     "Connection": "close",
                 },
-                json={
-                    "url": url,
-                },
-                timeout=(20, 90),
+                timeout=(15, 60),
                 allow_redirects=True,
             )
 
@@ -685,7 +680,6 @@ def download_manifesto_inea(url: str) -> requests.Response:
                 url=url,
                 headers={
                     "Accept": "application/pdf, application/json, */*",
-                    "Content-Type": "application/json",
                     "User-Agent": "Tree-ESG-API/1.0",
                     "Connection": "close",
                 },
