@@ -590,29 +590,248 @@ def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = ""
 logger = logging.getLogger("inea")
 logger.setLevel(logging.INFO)
 
+def salvar_manifesto_inea(
+    url: str,
+    manifesto: dict,
+) -> requests.Response:
+    """
+    Salva um manifesto no INEA.
 
-def salvar_manifesto_inea(url, manifesto):
-    logger.info("Iniciando função salvar_manifesto_inea")
+    Com INEA_WORKAROUND_ENABLED=true:
+        API Tree -> Cloudflare Tunnel -> Relay local -> INEA
 
-    payload = json.dumps(manifesto, ensure_ascii=False)
-    logger.info(f"Payload serializado enviado ao INEA: {payload}")
+    Com INEA_WORKAROUND_ENABLED=false:
+        API Tree -> INEA diretamente
+    """
 
-    headers = {
-        "Content-Type": "application/json"
-    }
+    endpoint, url_mascarada = validar_url_salvar_manifesto_inea(url)
 
-    logger.info(f"Headers enviados ao INEA: {headers}")
-    logger.info(f"URL de destino: {url}")
-
-    response_inea = requests.post(
-        url,
-        headers=headers,
-        data=payload,
-        timeout=60
+    modo = (
+        "relay-local"
+        if INEA_WORKAROUND_ENABLED
+        else "direto"
     )
 
-    logger.info(f"Resposta status code INEA: {response_inea.status_code}")
-    logger.info(f"Resposta body INEA: {response_inea.text}")
+    destino_url = ""
+
+    try:
+        payload_inea = json.dumps(
+            manifesto,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+    except (TypeError, ValueError) as error:
+        logger.error(
+            "[API INEA] Manifesto inválido para serialização | erro=%s",
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Manifesto inválido para serialização JSON: {str(error)}",
+        )
+
+    logger.info(
+        "[API INEA] Salvamento de manifesto iniciado | "
+        "modo=%s | endpoint=%s | url=%s | tamanho_payload=%s",
+        modo,
+        endpoint,
+        url_mascarada,
+        len(payload_inea),
+    )
+
+    # Evita registrar todo o manifesto, pois o objeto pode conter
+    # informações pessoais ou operacionais sensíveis.
+    logger.info(
+        "[API INEA] Campos do manifesto | campos=%s",
+        sorted(manifesto.keys()),
+    )
+
+    try:
+        # ======================================================
+        # WORKAROUND: API Tree -> relay local -> INEA
+        # ======================================================
+        if INEA_WORKAROUND_ENABLED:
+            if not INEA_RELAY_URL:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas "
+                        "INEA_RELAY_URL não está configurada."
+                    ),
+                )
+
+            if not INEA_RELAY_KEY:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas "
+                        "INEA_RELAY_KEY não está configurada."
+                    ),
+                )
+
+            destino_url = (
+                f"{INEA_RELAY_URL.rstrip('/')}"
+                "/inea/salvarManifesto"
+            )
+
+            payload_relay = json.dumps(
+                {
+                    "url": url,
+                    "manifesto": manifesto,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+
+            logger.warning(
+                "[API INEA] Salvamento utilizando workaround | "
+                "endpoint=%s | destino=%s | tamanho_payload=%s",
+                endpoint,
+                destino_url,
+                len(payload_relay),
+            )
+
+            response_inea = requests.post(
+                url=destino_url,
+                headers={
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Accept": "application/json, text/plain, */*",
+                    "X-Tree-Relay-Key": INEA_RELAY_KEY,
+                    "User-Agent": "Tree-ESG-API/1.0",
+                    "Connection": "close",
+                },
+                data=payload_relay,
+                timeout=(20, 120),
+                allow_redirects=False,
+            )
+
+        # ======================================================
+        # FLUXO NORMAL: API Tree -> INEA
+        # ======================================================
+        else:
+            destino_url = url
+
+            logger.info(
+                "[API INEA] Salvamento direto no INEA | "
+                "endpoint=%s | url=%s",
+                endpoint,
+                url_mascarada,
+            )
+
+            response_inea = requests.post(
+                url=destino_url,
+                headers={
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Accept": "application/json, text/plain, */*",
+                    "User-Agent": "Tree-ESG-API/1.0",
+                    "Connection": "close",
+                },
+                data=payload_inea,
+                timeout=(15, 90),
+                allow_redirects=False,
+            )
+
+    except HTTPException:
+        raise
+
+    except requests.ConnectTimeout as error:
+        logger.error(
+            "[API INEA] Timeout de conexão ao salvar manifesto | "
+            "modo=%s | destino=%s | endpoint=%s | erro=%s",
+            modo,
+            destino_url,
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "Timeout ao estabelecer conexão com o relay local."
+                if INEA_WORKAROUND_ENABLED
+                else "Timeout ao estabelecer conexão com a API do INEA."
+            ),
+        )
+
+    except requests.ReadTimeout as error:
+        logger.error(
+            "[API INEA] Timeout de resposta ao salvar manifesto | "
+            "modo=%s | destino=%s | endpoint=%s | erro=%s",
+            modo,
+            destino_url,
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "O relay demorou demais para processar o manifesto."
+                if INEA_WORKAROUND_ENABLED
+                else "A API do INEA demorou demais para processar o manifesto."
+            ),
+        )
+
+    except requests.SSLError as error:
+        logger.error(
+            "[API INEA] Erro SSL ao salvar manifesto | "
+            "modo=%s | destino=%s | endpoint=%s | erro=%s",
+            modo,
+            destino_url,
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro SSL ao salvar manifesto no INEA: {str(error)}",
+        )
+
+    except requests.RequestException as error:
+        logger.error(
+            "[API INEA] Erro de comunicação ao salvar manifesto | "
+            "modo=%s | destino=%s | endpoint=%s | erro=%s",
+            modo,
+            destino_url,
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação ao salvar manifesto: {str(error)}",
+        )
+
+    conteudo = response_inea.content or b""
+
+    content_type = response_inea.headers.get(
+        "Content-Type",
+        "application/json; charset=utf-8",
+    )
+
+    logger.info(
+        "[API INEA] Salvamento de manifesto finalizado | "
+        "modo=%s | destino=%s | endpoint=%s | "
+        "status=%s | content_type=%s | tamanho=%s",
+        modo,
+        destino_url,
+        endpoint,
+        response_inea.status_code,
+        content_type,
+        len(conteudo),
+    )
+
+    if response_inea.status_code >= 400:
+        logger.warning(
+            "[API INEA] Manifesto recusado | "
+            "modo=%s | endpoint=%s | status=%s | resposta=%s",
+            modo,
+            endpoint,
+            response_inea.status_code,
+            response_inea.text[:1000],
+        )
 
     return response_inea
 
@@ -825,6 +1044,7 @@ def download_manifesto_inea(url: str) -> requests.Response:
     )
 
     return response_inea
+
 # =============
 # HELPERS
 # =============
