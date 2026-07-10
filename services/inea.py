@@ -75,6 +75,150 @@ INEA_LIST_ENDPOINTS = {
 class ConsultaListaIneaRequest(BaseModel):
     url: str
 
+class CancelarManifestoIneaRequest(BaseModel):
+    url: str
+    cancelamento: dict[str, Any]
+
+def validar_body_cancelamento_inea(
+    cancelamento: dict[str, Any],
+) -> None:
+    campos_obrigatorios = {
+        "login",
+        "senha",
+        "cnp",
+        "codUnidade",
+        "manifestoCodigo",
+        "justificativa",
+    }
+
+    campos_ausentes = [
+        campo
+        for campo in campos_obrigatorios
+        if campo not in cancelamento
+        or cancelamento[campo] is None
+        or str(cancelamento[campo]).strip() == ""
+    ]
+
+    if campos_ausentes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Campos obrigatórios não informados: "
+                f"{', '.join(sorted(campos_ausentes))}"
+            ),
+        )
+
+    manifesto_codigo = str(
+        cancelamento["manifestoCodigo"]
+    ).strip()
+
+    if not manifesto_codigo.isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail="manifestoCodigo deve conter somente números.",
+        )
+
+    cod_unidade = str(
+        cancelamento["codUnidade"]
+    ).strip()
+
+    if not cod_unidade.isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail="codUnidade deve conter somente números.",
+        )
+
+    justificativa = str(
+        cancelamento["justificativa"]
+    ).strip()
+
+    if len(justificativa) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "A justificativa do cancelamento deve possuir "
+                "pelo menos 3 caracteres."
+            ),
+        )
+
+def validar_url_cancelar_manifesto_inea(
+    url: str,
+) -> tuple[str, str]:
+    """
+    Valida exclusivamente o endpoint de cancelamento do INEA.
+
+    Endpoint permitido:
+        POST /api/cancelarManifesto
+    """
+
+    try:
+        parsed_url = urlparse(url)
+        parsed_port = parsed_url.port
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL ou porta inválida: {str(error)}",
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL inválida: {str(error)}",
+        )
+
+    if parsed_url.scheme.lower() != "https":
+        raise HTTPException(
+            status_code=400,
+            detail="A URL do INEA deve utilizar HTTPS.",
+        )
+
+    hostname = (parsed_url.hostname or "").strip().lower()
+
+    if hostname != INEA_HOST:
+        raise HTTPException(
+            status_code=403,
+            detail="Host da API INEA não autorizado.",
+        )
+
+    if parsed_port not in (None, 443):
+        raise HTTPException(
+            status_code=403,
+            detail="Porta da API INEA não autorizada.",
+        )
+
+    if parsed_url.username or parsed_url.password:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL não pode conter credenciais no host.",
+        )
+
+    if parsed_url.query or parsed_url.fragment:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL não pode conter query string ou fragmento.",
+        )
+
+    path = parsed_url.path.rstrip("/")
+
+    if path != "/api/cancelarManifesto":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Endpoint INEA não autorizado para cancelamento. "
+                "Esperado: /api/cancelarManifesto"
+            ),
+        )
+
+    url_validada = (
+        f"https://{INEA_HOST}"
+        "/api/cancelarManifesto"
+    )
+
+    return "cancelarManifesto", url_validada
+
+
+
 def validar_url_download_manifesto_inea(
     url: str,
 ) -> tuple[str, str]:
@@ -292,6 +436,193 @@ def validar_url_lista_inea(url: str) -> tuple[str, str]:
 
     return endpoint, url_mascarada
 
+def cancelar_manifesto_inea(
+    url: str,
+    cancelamento: dict,
+) -> requests.Response:
+    """
+    Cancela um manifesto no INEA.
+
+    Workaround ativo:
+        API Tree -> relay local -> INEA
+
+    Workaround desativado:
+        API Tree -> INEA diretamente
+    """
+
+    endpoint, url_validada = (
+        validar_url_cancelar_manifesto_inea(url)
+    )
+
+    validar_body_cancelamento_inea(
+        cancelamento
+    )
+
+    modo = (
+        "relay-local"
+        if INEA_WORKAROUND_ENABLED
+        else "direto"
+    )
+
+    destino_url = ""
+
+    logger.info(
+        "[API INEA] Cancelamento iniciado | "
+        "modo=%s | endpoint=%s | manifesto_codigo=%s",
+        modo,
+        endpoint,
+        cancelamento.get("manifestoCodigo"),
+    )
+
+    try:
+        if INEA_WORKAROUND_ENABLED:
+            if not INEA_RELAY_URL:
+                raise HTTPException(
+                    status_code=500,
+                    detail="INEA_RELAY_URL não configurada.",
+                )
+
+            if not INEA_RELAY_KEY:
+                raise HTTPException(
+                    status_code=500,
+                    detail="INEA_RELAY_KEY não configurada.",
+                )
+
+            destino_url = (
+                f"{INEA_RELAY_URL.rstrip('/')}"
+                "/inea/cancelarManifesto"
+            )
+
+            logger.warning(
+                "[API INEA] Cancelamento utilizando workaround | "
+                "destino=%s | manifesto_codigo=%s",
+                destino_url,
+                cancelamento.get("manifestoCodigo"),
+            )
+
+            response_inea = requests.post(
+                url=destino_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/plain, */*",
+                    "X-Tree-Relay-Key": INEA_RELAY_KEY,
+                    "User-Agent": "Tree-ESG-API/1.0",
+                    "Connection": "close",
+                },
+                json={
+                    "url": url_validada,
+                    "cancelamento": cancelamento,
+                },
+                timeout=(20, 120),
+                allow_redirects=False,
+            )
+
+        else:
+            destino_url = url_validada
+
+            payload = json.dumps(
+                cancelamento,
+                ensure_ascii=False,
+            )
+
+            logger.info(
+                "[API INEA] Cancelamento direto | "
+                "destino=%s | manifesto_codigo=%s",
+                destino_url,
+                cancelamento.get("manifestoCodigo"),
+            )
+
+            response_inea = requests.post(
+                url=destino_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/plain, */*",
+                    "User-Agent": "Tree-ESG-API/1.0",
+                    "Connection": "close",
+                },
+                data=payload,
+                timeout=(15, 90),
+                allow_redirects=False,
+            )
+
+    except HTTPException:
+        raise
+
+    except requests.ConnectTimeout as error:
+        logger.error(
+            "[API INEA] Timeout de conexão no cancelamento | "
+            "modo=%s | destino=%s | erro=%s",
+            modo,
+            destino_url,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "Timeout ao conectar com o relay local."
+                if INEA_WORKAROUND_ENABLED
+                else "Timeout ao conectar com a API do INEA."
+            ),
+        )
+
+    except requests.ReadTimeout as error:
+        logger.error(
+            "[API INEA] Timeout de resposta no cancelamento | "
+            "modo=%s | destino=%s | erro=%s",
+            modo,
+            destino_url,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail="Timeout ao processar o cancelamento do manifesto.",
+        )
+
+    except requests.SSLError as error:
+        logger.error(
+            "[API INEA] Erro SSL no cancelamento | "
+            "modo=%s | destino=%s | erro=%s",
+            modo,
+            destino_url,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro SSL ao cancelar manifesto: {str(error)}",
+        )
+
+    except requests.RequestException as error:
+        logger.error(
+            "[API INEA] Erro de comunicação no cancelamento | "
+            "modo=%s | destino=%s | erro=%s",
+            modo,
+            destino_url,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Erro de comunicação ao cancelar manifesto: "
+                f"{str(error)}"
+            ),
+        )
+
+    logger.info(
+        "[API INEA] Cancelamento finalizado | "
+        "modo=%s | destino=%s | manifesto_codigo=%s | "
+        "status=%s | tamanho=%s",
+        modo,
+        destino_url,
+        cancelamento.get("manifestoCodigo"),
+        response_inea.status_code,
+        len(response_inea.content or b""),
+    )
+
+    return response_inea
 
 def validar_url_salvar_manifesto_inea(
     url: str,

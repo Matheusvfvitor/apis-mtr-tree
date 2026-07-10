@@ -17,6 +17,8 @@ from services.inea import (
     ConsultaIneaManifestoRequest,
     ConsultaListaIneaRequest,
     DownloadManifestoIneaRequest,
+    CancelarManifestoIneaRequest,
+    cancelar_manifesto_inea,
     retorna_lista_inea,
     retorna_manifesto_inea,
     salvar_manifesto_inea,
@@ -503,6 +505,29 @@ def mascarar_manifesto(manifesto):
     if "senha" in manifesto_safe:
         manifesto_safe["senha"] = "***"
     return manifesto_safe
+
+@app.post("/inea/cancelarManifesto")
+def cancelar_manifesto_inea_route(
+    dados: CancelarManifestoIneaRequest,
+):
+    response_inea = cancelar_manifesto_inea(
+        url=dados.url,
+        cancelamento=dados.cancelamento,
+    )
+
+    content_type = response_inea.headers.get(
+        "Content-Type",
+        "application/json; charset=utf-8",
+    )
+
+    return Response(
+        content=response_inea.content,
+        status_code=response_inea.status_code,
+        headers={
+            "Content-Type": content_type,
+            "Cache-Control": "no-store",
+        },
+    )
 
 # =========================
 # SINIR - Federal
