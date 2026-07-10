@@ -4,9 +4,32 @@ from pydantic import BaseModel
 from typing import Dict, Tuple, Optional, Union, Any
 from fastapi import FastAPI, Request, HTTPException
 from urllib.parse import urlparse
+import os
 
 import json
 import logging
+
+# ==========================================================
+# Configuração do workaround da API INEA
+# ==========================================================
+
+INEA_WORKAROUND_ENABLED = (
+    os.getenv("INEA_WORKAROUND_ENABLED", "false")
+    .strip()
+    .lower()
+    in {"true", "1", "yes", "on"}
+)
+
+INEA_RELAY_URL = (
+    os.getenv("INEA_RELAY_URL", "")
+    .strip()
+    .rstrip("/")
+)
+
+INEA_RELAY_KEY = os.getenv(
+    "INEA_RELAY_KEY",
+    "",
+).strip()
 
 
 
@@ -132,20 +155,20 @@ def validar_url_lista_inea(url: str) -> tuple[str, str]:
 
 def retorna_lista_inea(url: str) -> requests.Response:
     """
-    Consulta uma das listas auxiliares da API do INEA
-    e devolve a resposta HTTP original.
+    Consulta uma das listas auxiliares da API do INEA.
+
+    Com INEA_WORKAROUND_ENABLED=false:
+        API Tree -> API INEA
+
+    Com INEA_WORKAROUND_ENABLED=true:
+        API Tree -> Cloudflare Tunnel -> Relay local -> API INEA
+
+    A resposta HTTP recebida é devolvida integralmente para a rota.
     """
 
     endpoint, url_mascarada = validar_url_lista_inea(url)
 
-    logger.info(
-        "[API INEA] Consulta de lista iniciada | "
-        "endpoint=%s | url=%s",
-        endpoint,
-        url_mascarada,
-    )
-
-    headers = {
+    headers_inea = {
         "Accept": "application/json",
         "Content-Type": "application/json",
         "User-Agent": "Tree-ESG-API/1.0",
@@ -153,74 +176,172 @@ def retorna_lista_inea(url: str) -> requests.Response:
     }
 
     try:
-        response_inea = requests.post(
-            url=url,
-            headers=headers,
-            timeout=(15, 30),
-            allow_redirects=True,
-        )
+        # ======================================================
+        # WORKAROUND: encaminha pelo relay local
+        # ======================================================
+        if INEA_WORKAROUND_ENABLED:
+            if not INEA_RELAY_URL:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas a variável "
+                        "INEA_RELAY_URL não está configurada."
+                    ),
+                )
+
+            if not INEA_RELAY_KEY:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas a variável "
+                        "INEA_RELAY_KEY não está configurada."
+                    ),
+                )
+
+            relay_endpoint = (
+                f"{INEA_RELAY_URL}/inea/retornaListaInea"
+            )
+
+            logger.warning(
+                "[API INEA] Workaround habilitado | "
+                "endpoint=%s | url=%s | relay=%s",
+                endpoint,
+                url_mascarada,
+                INEA_RELAY_URL,
+            )
+
+            response_inea = requests.post(
+                url=relay_endpoint,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "X-Tree-Relay-Key": INEA_RELAY_KEY,
+                    "User-Agent": "Tree-ESG-API/1.0",
+                },
+                json={
+                    "url": url,
+                },
+                timeout=(15, 60),
+                allow_redirects=True,
+            )
+
+        # ======================================================
+        # FLUXO NORMAL: consulta diretamente o INEA
+        # ======================================================
+        else:
+            logger.info(
+                "[API INEA] Consulta direta iniciada | "
+                "endpoint=%s | url=%s",
+                endpoint,
+                url_mascarada,
+            )
+
+            response_inea = requests.post(
+                url=url,
+                headers=headers_inea,
+                timeout=(15, 30),
+                allow_redirects=True,
+            )
+
+    except HTTPException:
+        raise
 
     except requests.ConnectTimeout as error:
+        destino = (
+            "relay local"
+            if INEA_WORKAROUND_ENABLED
+            else "API do INEA"
+        )
+
         logger.error(
-            "[API INEA] Timeout de conexão | endpoint=%s | erro=%s",
+            "[API INEA] Timeout de conexão | "
+            "destino=%s | endpoint=%s | erro=%s",
+            destino,
             endpoint,
             str(error),
         )
 
         raise HTTPException(
             status_code=504,
-            detail=(
-                "Timeout ao estabelecer conexão com a API do INEA. "
-                "O servidor não conseguiu acessar mtr.inea.rj.gov.br:443."
-            ),
+            detail=f"Timeout ao estabelecer conexão com o {destino}.",
         )
 
     except requests.ReadTimeout as error:
+        destino = (
+            "relay local"
+            if INEA_WORKAROUND_ENABLED
+            else "API do INEA"
+        )
+
         logger.error(
-            "[API INEA] Timeout de resposta | endpoint=%s | erro=%s",
+            "[API INEA] Timeout de resposta | "
+            "destino=%s | endpoint=%s | erro=%s",
+            destino,
             endpoint,
             str(error),
         )
 
         raise HTTPException(
             status_code=504,
-            detail="A API do INEA demorou demais para responder.",
+            detail=f"O {destino} demorou demais para responder.",
         )
 
     except requests.SSLError as error:
+        destino = (
+            "relay local"
+            if INEA_WORKAROUND_ENABLED
+            else "API do INEA"
+        )
+
         logger.error(
-            "[API INEA] Erro SSL | endpoint=%s | erro=%s",
+            "[API INEA] Erro SSL | "
+            "destino=%s | endpoint=%s | erro=%s",
+            destino,
             endpoint,
             str(error),
         )
 
         raise HTTPException(
             status_code=502,
-            detail=f"Erro SSL ao consultar a API do INEA: {str(error)}",
+            detail=f"Erro SSL ao consultar o {destino}: {str(error)}",
         )
 
     except requests.RequestException as error:
+        destino = (
+            "relay local"
+            if INEA_WORKAROUND_ENABLED
+            else "API do INEA"
+        )
+
         logger.error(
-            "[API INEA] Erro de comunicação | endpoint=%s | erro=%s",
+            "[API INEA] Erro de comunicação | "
+            "destino=%s | endpoint=%s | erro=%s",
+            destino,
             endpoint,
             str(error),
         )
 
         raise HTTPException(
             status_code=502,
-            detail=f"Erro de comunicação com a API do INEA: {str(error)}",
+            detail=f"Erro de comunicação com o {destino}: {str(error)}",
         )
 
+    modo = (
+        "relay-local"
+        if INEA_WORKAROUND_ENABLED
+        else "direto"
+    )
+
     logger.info(
-        "[API INEA] Consulta de lista finalizada | "
-        "endpoint=%s | status=%s | tamanho=%s",
+        "[API INEA] Consulta finalizada | "
+        "modo=%s | endpoint=%s | status=%s | tamanho=%s",
+        modo,
         endpoint,
         response_inea.status_code,
         len(response_inea.content or b""),
     )
 
     return response_inea
-
 
 # =========================
 # Consulta Manifesto INEA
