@@ -16,9 +16,13 @@ from services.semad import (ConsultaSemadManifestoRequest,gerar_token_semad,reto
 from services.inea import (
     ConsultaIneaManifestoRequest,
     ConsultaListaIneaRequest,
+    DownloadManifestoIneaRequest,
     retorna_lista_inea,
     retorna_manifesto_inea,
     salvar_manifesto_inea,
+    download_manifesto_inea,
+    validar_url_download_manifesto_inea,
+
 )
 
 from services.sinir import (busca_modelos_sinir, ConsultaSinirModeloRequest)
@@ -383,6 +387,53 @@ def inea_retorna_manifesto(dados: ConsultaIneaManifestoRequest):
 
     except HTTPException as e:
         raise e
+
+@app.post("/inea/downloadManifesto")
+def download_manifesto(
+    dados: DownloadManifestoIneaRequest,
+):
+    codigo_barras, _ = validar_url_download_manifesto_inea(
+        dados.url
+    )
+
+    response_inea = download_manifesto_inea(
+        dados.url
+    )
+
+    conteudo = response_inea.content or b""
+
+    content_type = response_inea.headers.get(
+        "Content-Type",
+        "application/octet-stream",
+    )
+
+    is_pdf = (
+        "application/pdf" in content_type.lower()
+        or conteudo.startswith(b"%PDF")
+    )
+
+    if response_inea.status_code == 200 and is_pdf:
+        return Response(
+            content=conteudo,
+            status_code=200,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="MTR-{codigo_barras}.pdf"'
+                ),
+                "Cache-Control": "no-store",
+                "Content-Length": str(len(conteudo)),
+            },
+        )
+
+    return Response(
+        content=conteudo,
+        status_code=response_inea.status_code,
+        headers={
+            "Content-Type": content_type,
+            "Cache-Control": "no-store",
+        },
+    )
 
 @app.post('/inea/salvarManifesto')
 async def salvar_manifesto_inea_route(request: Request):

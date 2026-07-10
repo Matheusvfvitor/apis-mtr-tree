@@ -2,12 +2,17 @@ import requests
 from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import Dict, Tuple, Optional, Union, Any
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, APIRouter, Response
 from urllib.parse import urlparse
 import os
 
 import json
 import logging
+
+router = APIRouter(
+    prefix="/inea",
+    tags=["INEA"],
+)
 
 # ==========================================================
 # Configuração do workaround da API INEA
@@ -45,6 +50,10 @@ class ConsultaIneaManifestoRequest(BaseModel):
     unidadeGerador: str
     codigoBarras: str
 
+
+class DownloadManifestoIneaRequest(BaseModel):
+    url: str
+
 # =========================
 # Consulta LISTA INEA
 # =========================
@@ -62,6 +71,116 @@ INEA_LIST_ENDPOINTS = {
 class ConsultaListaIneaRequest(BaseModel):
     url: str
 
+def validar_url_download_manifesto_inea(
+    url: str,
+) -> tuple[str, str]:
+    """
+    Valida a URL de download do PDF do manifesto.
+
+    Estrutura esperada:
+
+    /api/buscaPdfManifestoPorCodigoBarras/
+    {cpf}/{senha}/{cnpj}/{unidade}/{codigoDeBarras}
+    """
+
+    try:
+        parsed_url = urlparse(url)
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL inválida: {str(error)}",
+        )
+
+    if parsed_url.scheme != "https":
+        raise HTTPException(
+            status_code=400,
+            detail="A URL do INEA deve utilizar HTTPS.",
+        )
+
+    if parsed_url.hostname != INEA_BASE_URL:
+        raise HTTPException(
+            status_code=403,
+            detail="Host da API INEA não autorizado.",
+        )
+
+    if parsed_url.port not in (None, 443):
+        raise HTTPException(
+            status_code=403,
+            detail="Porta da API INEA não autorizada.",
+        )
+
+    if parsed_url.query or parsed_url.fragment:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL não pode conter query string ou fragmento.",
+        )
+
+    partes = [
+        parte
+        for parte in parsed_url.path.split("/")
+        if parte
+    ]
+
+    # Estrutura:
+    # 0: api
+    # 1: buscaPdfManifestoPorCodigoBarras
+    # 2: cpf
+    # 3: senha
+    # 4: cnpj
+    # 5: unidade
+    # 6: codigoDeBarras
+    if len(partes) != 7:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Estrutura da URL inválida. Esperado: "
+                "/api/buscaPdfManifestoPorCodigoBarras/"
+                "{cpf}/{senha}/{cnpj}/{unidade}/{codigoDeBarras}"
+            ),
+        )
+
+    if partes[0] != "api":
+        raise HTTPException(
+            status_code=400,
+            detail="Prefixo da API INEA inválido.",
+        )
+
+    endpoint = partes[1]
+
+    if endpoint != "buscaPdfManifestoPorCodigoBarras":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Endpoint não autorizado: {endpoint}",
+        )
+
+    codigo_barras = partes[6]
+
+    if not codigo_barras.isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail="O código de barras deve conter somente números.",
+        )
+
+    if len(codigo_barras) != 34:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Código de barras inválido. "
+                "O código deve possuir 34 posições."
+            ),
+        )
+
+    partes_mascaradas = partes.copy()
+    partes_mascaradas[2] = "***CPF***"
+    partes_mascaradas[3] = "***SENHA***"
+
+    url_mascarada = (
+        f"{parsed_url.scheme}://"
+        f"{parsed_url.hostname}/"
+        f"{'/'.join(partes_mascaradas)}"
+    )
+
+    return codigo_barras, url_mascarada
 
 def validar_url_lista_inea(url: str) -> tuple[str, str]:
     """
@@ -476,7 +595,218 @@ def salvar_manifesto_inea(url, manifesto):
 
     return response_inea
 
+def download_manifesto_inea(url: str) -> requests.Response:
+    """
+    Faz o download de um manifesto do INEA.
 
+    Com INEA_WORKAROUND_ENABLED=false:
+        API Tree -> API INEA
+
+    Com INEA_WORKAROUND_ENABLED=true:
+        API Tree -> Cloudflare Tunnel -> Relay local -> API INEA
+
+    Retorna a resposta HTTP original para que a rota preserve o PDF
+    ou uma eventual mensagem de erro retornada pelo INEA.
+    """
+
+    codigo_barras, url_mascarada = (
+        validar_url_download_manifesto_inea(url)
+    )
+
+    modo = (
+        "relay-local"
+        if INEA_WORKAROUND_ENABLED
+        else "direto"
+    )
+
+    logger.info(
+        "[API INEA] Download de manifesto iniciado | "
+        "modo=%s | codigo_barras=%s | url=%s",
+        modo,
+        codigo_barras,
+        url_mascarada,
+    )
+
+    try:
+        # ======================================================
+        # WORKAROUND: API Tree -> relay -> INEA
+        # ======================================================
+        if INEA_WORKAROUND_ENABLED:
+            if not INEA_RELAY_URL:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas "
+                        "INEA_RELAY_URL não está configurada."
+                    ),
+                )
+
+            if not INEA_RELAY_KEY:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas "
+                        "INEA_RELAY_KEY não está configurada."
+                    ),
+                )
+
+            relay_endpoint = (
+                f"{INEA_RELAY_URL}/inea/downloadManifesto"
+            )
+
+            logger.warning(
+                "[API INEA] Download utilizando workaround | "
+                "codigo_barras=%s | relay=%s",
+                codigo_barras,
+                INEA_RELAY_URL,
+            )
+
+            response_inea = requests.post(
+                url=relay_endpoint,
+                headers={
+                    "Accept": "application/pdf, application/json, */*",
+                    "Content-Type": "application/json",
+                    "X-Tree-Relay-Key": INEA_RELAY_KEY,
+                    "User-Agent": "Tree-ESG-API/1.0",
+                    "Connection": "close",
+                },
+                json={
+                    "url": url,
+                },
+                timeout=(20, 90),
+                allow_redirects=True,
+            )
+
+        # ======================================================
+        # FLUXO NORMAL: API Tree -> INEA
+        # ======================================================
+        else:
+            response_inea = requests.post(
+                url=url,
+                headers={
+                    "Accept": "application/pdf, application/json, */*",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Tree-ESG-API/1.0",
+                    "Connection": "close",
+                },
+                timeout=(15, 60),
+                allow_redirects=True,
+            )
+
+    except HTTPException:
+        raise
+
+    except requests.ConnectTimeout as error:
+        destino = (
+            "relay local"
+            if INEA_WORKAROUND_ENABLED
+            else "API do INEA"
+        )
+
+        logger.error(
+            "[API INEA] Timeout de conexão no download | "
+            "destino=%s | codigo_barras=%s | erro=%s",
+            destino,
+            codigo_barras,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"Timeout ao estabelecer conexão com o {destino}."
+            ),
+        )
+
+    except requests.ReadTimeout as error:
+        destino = (
+            "relay local"
+            if INEA_WORKAROUND_ENABLED
+            else "API do INEA"
+        )
+
+        logger.error(
+            "[API INEA] Timeout de resposta no download | "
+            "destino=%s | codigo_barras=%s | erro=%s",
+            destino,
+            codigo_barras,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"O {destino} demorou demais para retornar o manifesto."
+            ),
+        )
+
+    except requests.SSLError as error:
+        destino = (
+            "relay local"
+            if INEA_WORKAROUND_ENABLED
+            else "API do INEA"
+        )
+
+        logger.error(
+            "[API INEA] Erro SSL no download | "
+            "destino=%s | codigo_barras=%s | erro=%s",
+            destino,
+            codigo_barras,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro SSL ao consultar o {destino}: {str(error)}",
+        )
+
+    except requests.RequestException as error:
+        destino = (
+            "relay local"
+            if INEA_WORKAROUND_ENABLED
+            else "API do INEA"
+        )
+
+        logger.error(
+            "[API INEA] Erro de comunicação no download | "
+            "destino=%s | codigo_barras=%s | erro=%s",
+            destino,
+            codigo_barras,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Erro de comunicação com o {destino}: {str(error)}"
+            ),
+        )
+
+    conteudo = response_inea.content or b""
+
+    content_type = response_inea.headers.get(
+        "Content-Type",
+        "application/octet-stream",
+    )
+
+    is_pdf = (
+        "application/pdf" in content_type.lower()
+        or conteudo.startswith(b"%PDF")
+    )
+
+    logger.info(
+        "[API INEA] Download de manifesto finalizado | "
+        "modo=%s | codigo_barras=%s | status=%s | "
+        "content_type=%s | is_pdf=%s | tamanho=%s",
+        modo,
+        codigo_barras,
+        response_inea.status_code,
+        content_type,
+        is_pdf,
+        len(conteudo),
+    )
+
+    return response_inea
 # =============
 # HELPERS
 # =============
