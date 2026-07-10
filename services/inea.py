@@ -3,6 +3,8 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import Dict, Tuple, Optional, Union, Any
 from fastapi import FastAPI, Request, HTTPException
+from urllib.parse import urlparse
+
 import json
 import logging
 
