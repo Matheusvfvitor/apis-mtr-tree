@@ -20,8 +20,204 @@ class ConsultaIneaManifestoRequest(BaseModel):
     unidadeGerador: str
     codigoBarras: str
 
+# =========================
+# Consulta LISTA INEA
+# =========================
+# Endpoints de consulta permitidos pelo proxy.
+INEA_LIST_ENDPOINTS = {
+    "retornaListaClasse",
+    "retornaListaUnidade",
+    "retornaListaTecnologia",
+    "retornaListaEstadoFisico",
+    "retornaListaResiduo",
+    "retornaListaAcondicionamento",
+}
 
 
+class ConsultaListaIneaRequest(BaseModel):
+    url: str
+
+
+def validar_url_lista_inea(url: str) -> tuple[str, str]:
+    """
+    Valida a URL recebida do client.
+
+    Estrutura esperada:
+    https://mtr.inea.rj.gov.br/api/{endpoint}/{cpf}/{senha}/{cnpj}/{unidade}
+    """
+
+    try:
+        parsed_url = urlparse(url)
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL do INEA inválida: {str(error)}",
+        )
+
+    if parsed_url.scheme != "https":
+        raise HTTPException(
+            status_code=400,
+            detail="A URL do INEA deve utilizar HTTPS.",
+        )
+
+    if parsed_url.hostname != "mtr.inea.rj.gov.br":
+        raise HTTPException(
+            status_code=403,
+            detail="Host da API INEA não autorizado.",
+        )
+
+    if parsed_url.port not in (None, 443):
+        raise HTTPException(
+            status_code=403,
+            detail="Porta da API INEA não autorizada.",
+        )
+
+    if parsed_url.query or parsed_url.fragment:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL do INEA não pode conter query string ou fragmento.",
+        )
+
+    partes = [
+        parte
+        for parte in parsed_url.path.split("/")
+        if parte
+    ]
+
+    # Estrutura:
+    # 0: api
+    # 1: endpoint
+    # 2: cpf
+    # 3: senha
+    # 4: cnpj
+    # 5: unidade
+    if len(partes) != 6:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Estrutura da URL INEA inválida. "
+                "Esperado: /api/{endpoint}/{cpf}/{senha}/{cnpj}/{unidade}"
+            ),
+        )
+
+    if partes[0] != "api":
+        raise HTTPException(
+            status_code=400,
+            detail="Prefixo da API INEA inválido.",
+        )
+
+    endpoint = partes[1]
+
+    if endpoint not in INEA_LIST_ENDPOINTS:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Endpoint INEA não autorizado: {endpoint}",
+        )
+
+    # URL mascarada para os logs.
+    partes_mascaradas = partes.copy()
+    partes_mascaradas[2] = "***CPF***"
+    partes_mascaradas[3] = "***SENHA***"
+
+    url_mascarada = (
+        f"{parsed_url.scheme}://"
+        f"{parsed_url.hostname}/"
+        f"{'/'.join(partes_mascaradas)}"
+    )
+
+    return endpoint, url_mascarada
+
+
+def retorna_lista_inea(url: str) -> requests.Response:
+    """
+    Consulta uma das listas auxiliares da API do INEA
+    e devolve a resposta HTTP original.
+    """
+
+    endpoint, url_mascarada = validar_url_lista_inea(url)
+
+    logger.info(
+        "[API INEA] Consulta de lista iniciada | "
+        "endpoint=%s | url=%s",
+        endpoint,
+        url_mascarada,
+    )
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Tree-ESG-API/1.0",
+        "Connection": "close",
+    }
+
+    try:
+        response_inea = requests.post(
+            url=url,
+            headers=headers,
+            timeout=(15, 30),
+            allow_redirects=True,
+        )
+
+    except requests.ConnectTimeout as error:
+        logger.error(
+            "[API INEA] Timeout de conexão | endpoint=%s | erro=%s",
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "Timeout ao estabelecer conexão com a API do INEA. "
+                "O servidor não conseguiu acessar mtr.inea.rj.gov.br:443."
+            ),
+        )
+
+    except requests.ReadTimeout as error:
+        logger.error(
+            "[API INEA] Timeout de resposta | endpoint=%s | erro=%s",
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail="A API do INEA demorou demais para responder.",
+        )
+
+    except requests.SSLError as error:
+        logger.error(
+            "[API INEA] Erro SSL | endpoint=%s | erro=%s",
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro SSL ao consultar a API do INEA: {str(error)}",
+        )
+
+    except requests.RequestException as error:
+        logger.error(
+            "[API INEA] Erro de comunicação | endpoint=%s | erro=%s",
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação com a API do INEA: {str(error)}",
+        )
+
+    logger.info(
+        "[API INEA] Consulta de lista finalizada | "
+        "endpoint=%s | status=%s | tamanho=%s",
+        endpoint,
+        response_inea.status_code,
+        len(response_inea.content or b""),
+    )
+
+    return response_inea
 
 
 # =========================

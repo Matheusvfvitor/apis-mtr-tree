@@ -9,12 +9,17 @@ from services.sinir import (retorna_dados_transportador_sinir, retorna_dados_arm
 from services.semad import (buscar_armazenador_semad, buscar_destino_semad, buscar_transportador_semad)
 
 from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
-from services.inea import(ConsultaIneaManifestoRequest,retorna_manifesto_inea)
 from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
 from services.sigor import (ConsultaSigorManifestoRequest, gerar_token_sigor,retorna_manifesto_sigor)
 from services.semad import (ConsultaSemadManifestoRequest,gerar_token_semad,retorna_manifesto_semad)
 
-from services.inea import (salvar_manifesto_inea)
+from services.inea import (
+    ConsultaIneaManifestoRequest,
+    ConsultaListaIneaRequest,
+    retorna_lista_inea,
+    retorna_manifesto_inea,
+    salvar_manifesto_inea,
+)
 
 from services.sinir import (busca_modelos_sinir, ConsultaSinirModeloRequest)
 from services.sigor import (busca_modelos_sigor, ConsultaSigorModeloRequest)
@@ -311,6 +316,54 @@ def fepam_buscar_parceiro(dados: BuscaParceiro):
 # =========================
 # INEA - RJ
 # =========================
+@app.post("/inea/retornaListaInea")
+def inea_retorna_lista(dados: ConsultaListaIneaRequest):
+    """
+    Proxy controlado para consulta das listas auxiliares do INEA.
+
+    Body esperado:
+    {
+        "url": "https://mtr.inea.rj.gov.br/api/retornaListaUnidade/..."
+    }
+    """
+
+    logger_inea = logging.getLogger("inea")
+
+    try:
+        response_inea = retorna_lista_inea(dados.url)
+
+        content_type = response_inea.headers.get(
+            "Content-Type",
+            "application/json; charset=utf-8",
+        )
+
+        logger_inea.info(
+            "[API INEA] Resposta repassada ao client | status=%s",
+            response_inea.status_code,
+        )
+
+        return Response(
+            content=response_inea.content,
+            status_code=response_inea.status_code,
+            headers={
+                "Content-Type": content_type,
+                "Cache-Control": "no-store",
+            },
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        logger_inea.exception(
+            "[API INEA] Erro inesperado na rota retornaListaInea"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro inesperado ao consultar o INEA: {str(error)}",
+        )
+        
 @app.post("/inea/retorna-manifesto-codigo-de-barras")
 def inea_retorna_manifesto(dados: ConsultaIneaManifestoRequest):
     try:
