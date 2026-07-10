@@ -292,6 +292,132 @@ def validar_url_lista_inea(url: str) -> tuple[str, str]:
 
     return endpoint, url_mascarada
 
+def validar_url_salvar_manifesto_inea(
+    url: str,
+) -> tuple[str, str]:
+    """
+    Valida a URL do endpoint de salvamento de manifesto do INEA.
+
+    Estrutura esperada:
+    /api/salvarManifesto/{cpf}/{senha}/{cnpj}/{unidade}
+    """
+
+    try:
+        parsed_url = urlparse(url)
+        parsed_port = parsed_url.port
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL ou porta inválida: {str(error)}",
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL inválida: {str(error)}",
+        )
+
+    if parsed_url.scheme.lower() != "https":
+        raise HTTPException(
+            status_code=400,
+            detail="A URL do INEA deve utilizar HTTPS.",
+        )
+
+    hostname = (parsed_url.hostname or "").strip().lower()
+
+    if hostname != "mtr.inea.rj.gov.br":
+        raise HTTPException(
+            status_code=403,
+            detail="Host da API INEA não autorizado.",
+        )
+
+    if parsed_port not in (None, 443):
+        raise HTTPException(
+            status_code=403,
+            detail="Porta da API INEA não autorizada.",
+        )
+
+    if parsed_url.username or parsed_url.password:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL não pode conter credenciais no host.",
+        )
+
+    if parsed_url.query or parsed_url.fragment:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL não pode conter query string ou fragmento.",
+        )
+
+    partes = [
+        parte
+        for parte in parsed_url.path.split("/")
+        if parte
+    ]
+
+    # 0: api
+    # 1: salvarManifesto
+    # 2: cpf
+    # 3: senha
+    # 4: cnpj
+    # 5: unidade
+    if len(partes) != 6:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Estrutura da URL inválida. Esperado: "
+                "/api/salvarManifesto/"
+                "{cpf}/{senha}/{cnpj}/{unidade}"
+            ),
+        )
+
+    if partes[0] != "api":
+        raise HTTPException(
+            status_code=400,
+            detail="Prefixo da API INEA inválido.",
+        )
+
+    endpoint = partes[1]
+
+    if endpoint != "salvarManifesto":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Endpoint não autorizado: {endpoint}",
+        )
+
+    cpf = partes[2]
+    cnpj = partes[4]
+    unidade = partes[5]
+
+    if not cpf.isdigit() or len(cpf) != 11:
+        raise HTTPException(
+            status_code=400,
+            detail="CPF de acesso inválido.",
+        )
+
+    if not cnpj.isdigit() or len(cnpj) not in (11, 14):
+        raise HTTPException(
+            status_code=400,
+            detail="CNPJ ou CPF da unidade inválido.",
+        )
+
+    if not unidade.isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail="Código da unidade inválido.",
+        )
+
+    partes_mascaradas = partes.copy()
+    partes_mascaradas[2] = "***CPF***"
+    partes_mascaradas[3] = "***SENHA***"
+
+    url_mascarada = (
+        f"https://{hostname}/"
+        f"{'/'.join(partes_mascaradas)}"
+    )
+
+    return endpoint, url_mascarada
 
 def retorna_lista_inea(url: str) -> requests.Response:
     """
