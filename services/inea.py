@@ -43,6 +43,7 @@ INEA_RELAY_URL = (
 
 
 INEA_BASE_URL = "http://mtr.inea.rj.gov.br/api"
+INEA_HOST = "mtr.inea.rj.gov.br"
 
 # =========================
 # Schema de entrada INEA
