@@ -8,7 +8,7 @@ from services.sigor import (retorna_dados_armazenador_sigor, retorna_dados_desti
 from services.sinir import (retorna_dados_transportador_sinir, retorna_dados_armazenador_sinir, retorna_dados_destino_sinir)
 from services.semad import (buscar_armazenador_semad, buscar_destino_semad, buscar_transportador_semad)
 
-from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima)
+from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima, salvar_manifesto_ima)
 from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
 from services.sigor import (ConsultaSigorManifestoRequest, gerar_token_sigor,retorna_manifesto_sigor)
 from services.semad import (ConsultaSemadManifestoRequest,gerar_token_semad,retorna_manifesto_semad)
@@ -273,6 +273,69 @@ def ima_buscar_parceiro(dados: BuscaParceiro):
         raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
 
     return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
+
+
+@app.post('/ima/salvarManifesto')
+async def salvar_manifesto_ima_route(request: Request):
+    logger = logging.getLogger("ima")
+    logger.setLevel(logging.INFO)
+
+    try:
+        logger.info("Iniciando rota /ima/salvarManifesto")
+
+        data = await request.json()
+        logger.info(f"Body recebido na rota: {json.dumps(data, ensure_ascii=False)}")
+        print(f"Body recebido na rota: {json.dumps(data, ensure_ascii=False)}")
+
+        url = data.get("url")
+        manifesto = data.get("manifesto")
+
+        logger.info(f" URL recebida: {url}")
+        logger.info(f" Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}")
+        print(f" ✅ URL recebida: {url}")
+        print(f" ✅ Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}")
+
+        if not url or manifesto is None:
+            logger.warning(" ⚠️ Campos url e manifesto são obrigatórios")
+            print(" ⚠️ Campos url e manifesto são obrigatórios")
+
+            raise HTTPException(
+                status_code=400,
+                detail="Campos url e manifesto são obrigatórios"
+            )
+
+        response_inea = salvar_manifesto_ima(url, manifesto)
+
+        logger.info(f" ✅ Status retornado pelo IMA: {response_inea.status_code}")
+        logger.info(f" ✅ Body retornado pelo IMA: {response_inea.text}")
+        
+        
+        print(f" ✅ Status retornado pelo IMA: {response_inea.status_code}")
+        print(f"✅ Body retornado pelo IMA: {response_inea.text}")
+
+
+        return Response(
+            content=response_inea.text,
+            status_code=response_inea.status_code,
+            media_type="application/json"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as error:
+        logger.exception("Erro inesperado na rota /inea/salvarManifesto")
+        print(" ❌ Erro inesperado na rota /inea/salvarManifesto")
+        
+
+        return Response(
+            content=json.dumps(
+                {"ok": False, "error": str(error)},
+                ensure_ascii=False
+            ),
+            status_code=500,
+            media_type="application/json"
+        )
+
 
 # =========================
 # FEPAM

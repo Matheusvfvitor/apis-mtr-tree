@@ -2,6 +2,11 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
 from typing import Dict, Tuple, Optional, Union, Any
+from urllib.parse import urlparse
+import logging
+import json
+
+
 
 
 
@@ -12,6 +17,17 @@ class ConsultaIMAManifestoRequest(BaseModel):
     unidadeGerador: str
     codigoBarras: str
 
+
+
+# ==========================================================
+# Configuração do workaround da API IMA
+# ==========================================================
+
+IMA_WORKAROUND_ENABLED = False
+
+
+logger = logging.getLogger("ima")
+logger.setLevel(logging.INFO)
 
 def consultar_manifesto_ima(
     codigo_barras: str,
@@ -38,7 +54,6 @@ def consultar_manifesto_ima(
 
     return response.json()
 
-        
 def autenticar_e_obter_cookies(
     cnpj: str,
     senha: str,
@@ -277,7 +292,253 @@ def buscar_armazenador_ima(cnpj):
 
     return r
  
-   
+
+def validar_url_salvar_manifesto_ima(
+    url: str,
+) -> tuple[str, str]:
+    """
+    Valida o endpoint real de salvamento em lote do IMA.
+
+    Endpoint aceito:
+        POST /api/salvarManifestoLote
+
+    Login, senha, CNPJ e unidade ficam no body.
+    """
+
+    try:
+        parsed_url = urlparse(url)
+        parsed_port = parsed_url.port
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL ou porta inválida: {str(error)}",
+        )
+
+    if parsed_url.scheme.lower() != "https":
+        raise HTTPException(
+            status_code=400,
+            detail="A URL do IMA deve utilizar HTTPS.",
+        )
+
+    hostname = (parsed_url.hostname or "").strip().lower()
+
+    if hostname != "mtr.ima.sc.gov.br":
+        raise HTTPException(
+            status_code=403,
+            detail="Host da API IMA não autorizado.",
+        )
+
+    if parsed_port not in (None, 443):
+        raise HTTPException(
+            status_code=403,
+            detail="Porta da API IMA não autorizada.",
+        )
+
+    if parsed_url.username or parsed_url.password:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL não pode conter credenciais no host.",
+        )
+
+    if parsed_url.query or parsed_url.fragment:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL não pode conter query string ou fragmento.",
+        )
+
+    path = parsed_url.path.rstrip("/")
+
+    if path != "/api/salvarManifestoLote":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Endpoint inválido. Esperado: "
+                "/mtrservice/salvarManifestoLote"
+            ),
+        )
+        
+
+    url_validada = (
+        "https://mtr.ima.sc.gov.br"
+        "/mtrservice/salvarManifestoLote"
+    )
+
+    return "salvarManifestoLote", url_validada
+
+def salvar_manifesto_ima(
+    url: str,
+    manifesto: dict,
+) -> requests.Response:
+    
+    endpoint, url_mascarada = validar_url_salvar_manifesto_ima(url)
+
+    modo = (
+        "relay-local"
+        if IMA_WORKAROUND_ENABLED
+        else "direto"
+    )
+
+    destino_url = ""
+
+    try:
+        payload_ima = json.dumps(
+            manifesto,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+    except (TypeError, ValueError) as error:
+        logger.error(
+            "API IMA Manifesto inválido para serialização | erro=%s",
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Manifesto inválido para serialização JSON: {str(error)}",
+        )
+
+    logger.info(
+        "API IMA Salvamento de manifesto iniciado | "
+        "modo=%s | endpoint=%s | url=%s | tamanho_payload=%s",
+        modo,
+        endpoint,
+        url_mascarada,
+        len(payload_ima),
+    )
+
+    # Evita registrar todo o manifesto, pois o objeto pode conter
+    # informações pessoais ou operacionais sensíveis.
+    logger.info(
+        "API IMA Campos do manifesto | campos=%s",
+        sorted(manifesto.keys()),
+    )
+
+    try:
+        destino_url = url
+
+        logger.info(
+            "API IMA Salvamento direto no IMA | "
+            "endpoint=%s | url=%s",
+            endpoint,
+            url_mascarada,
+        )
+
+        response_ima = requests.post(
+            url=destino_url,
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Accept": "application/json, text/plain, */*",
+                "User-Agent": "Tree-ESG-API/1.0",
+                "Connection": "close",
+            },
+            data=payload_ima,
+            timeout=(15, 90),
+            allow_redirects=False,
+        )
+    except HTTPException:
+        raise
+
+    except requests.ConnectTimeout as error:
+        logger.error(
+            "API IMA Timeout de conexão ao salvar manifesto | "
+            "modo=%s | destino=%s | endpoint=%s | erro=%s",
+            modo,
+            destino_url,
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "Timeout ao estabelecer conexão com o relay local."
+                if IMA_WORKAROUND_ENABLED
+                else "Timeout ao estabelecer conexão com a API do IMA."
+            ),
+        )
+
+    except requests.ReadTimeout as error:
+        logger.error(
+            "[API IMA] Timeout de resposta ao salvar manifesto | "
+            "modo=%s | destino=%s | endpoint=%s | erro=%s",
+            modo,
+            destino_url,
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "O relay demorou demais para processar o manifesto."
+                if IMA_WORKAROUND_ENABLED
+                else "A API do IMA demorou demais para processar o manifesto."
+            ),
+        )
+
+    except requests.SSLError as error:
+        logger.error(
+            "API IMA Erro SSL ao salvar manifesto | "
+            "modo=%s | destino=%s | endpoint=%s | erro=%s",
+            modo,
+            destino_url,
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro SSL ao salvar manifesto no IMA: {str(error)}",
+        )
+
+    except requests.RequestException as error:
+        logger.error(
+            "API IMA Erro de comunicação ao salvar manifesto | "
+            "modo=%s | destino=%s | endpoint=%s | erro=%s",
+            modo,
+            destino_url,
+            endpoint,
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação ao salvar manifesto: {str(error)}",
+        )
+
+    conteudo = response_ima.content or b""
+
+    content_type = response_ima.headers.get(
+        "Content-Type",
+        "application/json; charset=utf-8",
+    )
+
+    logger.info(
+        "API IMA Salvamento de manifesto finalizado | "
+        "modo=%s | destino=%s | endpoint=%s | "
+        "status=%s | content_type=%s | tamanho=%s",
+        modo,
+        destino_url,
+        endpoint,
+        response_ima.status_code,
+        content_type,
+        len(conteudo),
+    )
+
+    if response_ima.status_code >= 400:
+        logger.warning(
+            "API IMA Manifesto recusado | "
+            "modo=%s | endpoint=%s | status=%s | resposta=%s",
+            modo,
+            endpoint,
+            response_ima.status_code,
+            response_ima.text[:1000],
+        )
+
+    return response_ima
+
 
 def login_ima():
     url = "http://scheduler-python-login-ima.4ps3wk.easypanel.host/ima-login"
