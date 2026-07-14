@@ -293,16 +293,20 @@ def buscar_armazenador_ima(cnpj):
     return r
  
 
+IMA_SALVAR_MANIFESTO_URL = (
+    "https://mtr.ima.sc.gov.br"
+    "/mtrservice/salvarManifestoLote"
+)
+
+
 def validar_url_salvar_manifesto_ima(
     url: str,
 ) -> tuple[str, str]:
     """
-    Valida o endpoint real de salvamento em lote do IMA.
+    Valida o endpoint de salvamento em lote do IMA.
 
     Endpoint aceito:
-        POST /api/salvarManifestoLote
-
-    Login, senha, CNPJ e unidade ficam no body.
+        POST /mtrservice/salvarManifestoLote
     """
 
     try:
@@ -348,23 +352,15 @@ def validar_url_salvar_manifesto_ima(
         )
 
     path = parsed_url.path.rstrip("/")
+    expected_path = "/mtrservice/salvarManifestoLote"
 
-    if path != "/api/salvarManifestoLote":
+    if path != expected_path:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Endpoint inválido. Esperado: "
-                "/mtrservice/salvarManifestoLote"
-            ),
+            detail=f"Endpoint inválido. Esperado: {expected_path}",
         )
-        
 
-    url_validada = (
-        "https://mtr.ima.sc.gov.br"
-        "/mtrservice/salvarManifestoLote"
-    )
-
-    return "salvarManifestoLote", url_validada
+    return "salvarManifestoLote", IMA_SALVAR_MANIFESTO_URL
 
 def salvar_manifesto_ima(
     url: str,
