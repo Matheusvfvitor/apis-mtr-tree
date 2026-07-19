@@ -1,0 +1,8 @@
+# Configuração do Ruff para Python (Equivalente ao Prettier)
+
+# Define o limite de caracteres por linha para 120 (evita quebras indesejadas)
+line-length = 150
+
+[format]
+# Força o uso de aspas simples nas strings, igual configuramos no Prettier
+quote-style = "single"

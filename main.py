@@ -1,17 +1,75 @@
 from datetime import datetime
-from services.fepam import (ConsultaFepamManifestoRequest, retorna_manifesto_fepam)
-from services.feam import (BuscarDeclaracaoDMRRequest,ListarDMRRequest, AtualizarItensDMRRequest, ConsultaFeamCookiesRequest, ConsultaFeamManifestoRequest,atualizar_itens_dmr, buscar_declaracao_dmr, get_cookies_feam, gerar_token_feam, listar_dmrs, retorna_manifesto_feam)
-from services.feam import(buscar_armazenador_feam, buscar_destino_feam, buscar_transportador_feam)
-from services.ima import (buscar_armazenador_ima, buscar_destino_ima, buscar_transportador_ima)
-from services.fepam import (buscar_armazenador_fepam, buscar_destino_fepam, buscar_transportador_fepam)
-from services.sigor import (retorna_dados_armazenador_sigor, retorna_dados_destino_sigor, retorna_dados_transportador_sigor)
-from services.sinir import (retorna_dados_transportador_sinir, retorna_dados_armazenador_sinir, retorna_dados_destino_sinir)
-from services.semad import (buscar_armazenador_semad, buscar_destino_semad, buscar_transportador_semad)
 
-from services.ima import(ConsultaIMAManifestoRequest,consultar_manifesto_ima, salvar_manifesto_ima)
-from services.sinir import (ConsultaSinirManifestoRequest, gerar_token_sinir, retorna_manifesto_sinir)
-from services.sigor import (ConsultaSigorManifestoRequest, gerar_token_sigor,retorna_manifesto_sigor)
-from services.semad import (ConsultaSemadManifestoRequest,gerar_token_semad,retorna_manifesto_semad)
+from services.fepam import ConsultaFepamManifestoRequest, retorna_manifesto_fepam
+from services.feam import (
+    BuscarDeclaracaoDMRRequest,
+    ListarDMRRequest,
+    AtualizarItensDMRRequest,
+    ConsultaFeamCookiesRequest,
+    ConsultaFeamManifestoRequest,
+    atualizar_itens_dmr,
+    buscar_declaracao_dmr,
+    get_cookies_feam,
+    gerar_token_feam,
+    listar_dmrs,
+    retorna_manifesto_feam,
+)
+from services.feam import (
+    buscar_armazenador_feam,
+    buscar_destino_feam,
+    buscar_transportador_feam,
+)
+from services.ima import (
+    buscar_armazenador_ima,
+    buscar_destino_ima,
+    buscar_transportador_ima,
+)
+from services.fepam import (
+    buscar_armazenador_fepam,
+    buscar_destino_fepam,
+    buscar_transportador_fepam,
+)
+from services.sigor import (
+    retorna_dados_armazenador_sigor,
+    retorna_dados_destino_sigor,
+    retorna_dados_transportador_sigor,
+)
+from services.sinir import (
+    retorna_dados_transportador_sinir,
+    retorna_dados_armazenador_sinir,
+    retorna_dados_destino_sinir,
+)
+from services.semad import (
+    ConsultaSemadManifestoRequest,
+    gerar_token_semad,
+    retorna_manifesto_semad,
+    download_mtr_semad,
+    buscar_destino_semad,
+    buscar_parceiro_semad,
+    buscar_transportador_semad,
+    buscar_armazenador_semad,
+)
+
+from services.ima import (
+    ConsultaIMAManifestoRequest,
+    consultar_manifesto_ima,
+    salvar_manifesto_ima,
+)
+from services.sinir import (
+    ConsultaSinirManifestoRequest,
+    gerar_token_sinir,
+    retorna_manifesto_sinir,
+)
+from services.sigor import (
+    ConsultaSigorManifestoRequest,
+    gerar_token_sigor,
+    retorna_manifesto_sigor,
+)
+from services.semad import (
+    ConsultaSemadManifestoRequest,
+    gerar_token_semad,
+    retorna_manifesto_semad,
+)
 
 from services.inea import (
     ConsultaIneaManifestoRequest,
@@ -24,11 +82,10 @@ from services.inea import (
     salvar_manifesto_inea,
     download_manifesto_inea,
     validar_url_download_manifesto_inea,
-
 )
 
-from services.sinir import (busca_modelos_sinir, ConsultaSinirModeloRequest)
-from services.sigor import (busca_modelos_sigor, ConsultaSigorModeloRequest)
+from services.sinir import busca_modelos_sinir, ConsultaSinirModeloRequest
+from services.sigor import busca_modelos_sigor, ConsultaSigorModeloRequest
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,122 +97,100 @@ import requests
 import json
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(name)s | %(message)s')
 
 
-app = FastAPI(
-    title="API FEAM - Consulta MTR",
-    version="1.0.0"
-)
+app = FastAPI(title='API FEAM - Consulta MTR', version='1.0.0')
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=['*'],
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=['*'],
+    allow_headers=['*'],
 )
+
 
 class BuscaParceiro(BaseModel):
     cnpj: str
     tipoParceiro: str
 
+
 # ================================================================================================================
 # FEAM - MG
 # ================================================================================================================
 
+
 # -------------------------
 # FEAM - MG
 # -------------------------
-@app.post("/feam/retorna-manifesto-codigo-de-barras")
+@app.post('/feam/retorna-manifesto-codigo-de-barras')
 def feam_retorna_manifesto(dados: ConsultaFeamManifestoRequest):
     try:
         manifesto = retorna_manifesto_feam(
             cnpj=dados.cnpj,
             senha=dados.senha,
             unidade=dados.unidadeGerador,
-            codigo_barras=dados.codigoDeBarras
+            codigo_barras=dados.codigoDeBarras,
         )
 
-        return {
-            "sucesso": True,
-            "orgao": "FEAM",
-            "dados": manifesto
-        }
+        return {'sucesso': True, 'orgao': 'FEAM', 'dados': manifesto}
 
     except HTTPException as e:
         raise e
 
+
 # -------------------------
 # FEAM - Atualizar Itens DMR
 # -------------------------
-@app.post("/feam/dmr/atualizar-itens")
+@app.post('/feam/dmr/atualizar-itens')
 def feam_atualizar_itens_dmr(dados: AtualizarItensDMRRequest):
 
     try:
-
         resultado = atualizar_itens_dmr(
             cod_declarante=dados.codDeclarante,
             id_declaracao=dados.idDeclaracao,
             data_inicial=dados.dataInicial,
             data_final=dados.dataFinal,
-            jsessionid=dados.JSESSIONID
+            jsessionid=dados.JSESSIONID,
         )
 
         return {
-            "sucesso": True,
-            "orgao": "FEAM",
-            "acao": "ATUALIZAR_ITENS_DMR",
-            "dados": resultado
+            'sucesso': True,
+            'orgao': 'FEAM',
+            'acao': 'ATUALIZAR_ITENS_DMR',
+            'dados': resultado,
         }
 
     except HTTPException as e:
         raise e
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # -------------------------
 # FEAM - Get Cookies (Selenium)
 # -------------------------
-@app.post("/feam/get-cookies")
+@app.post('/feam/get-cookies')
 def feam_get_cookies(dados: ConsultaFeamCookiesRequest):
 
     try:
-        cookies = get_cookies_feam(
-            cpf=dados.cpf,
-            cnpj=dados.cnpj,
-            unidade=dados.unidade,
-            senha=dados.senha
-        )
+        cookies = get_cookies_feam(cpf=dados.cpf, cnpj=dados.cnpj, unidade=dados.unidade, senha=dados.senha)
 
-        return {
-            "sucesso": True,
-            "orgao": "FEAM",
-            "cookies": cookies
-        }
+        return {'sucesso': True, 'orgao': 'FEAM', 'cookies': cookies}
 
     except HTTPException as e:
         raise e
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # -------------------------
 # FEAM - Listar DMRs
 # -------------------------
-@app.post("/feam/dmr/listar")
+@app.post('/feam/dmr/listar')
 def feam_listar_dmrs(dados: ListarDMRRequest):
 
     try:
@@ -166,174 +201,162 @@ def feam_listar_dmrs(dados: ListarDMRRequest):
             s_search=dados.sSearch,
             i_columns=dados.iColumns,
             s_echo=dados.sEcho,
-            tabela=dados.tabela
+            tabela=dados.tabela,
         )
 
         return {
-            "sucesso": True,
-            "orgao": "FEAM",
-            "acao": "LISTAR_DMRS",
-            "dados": resultado
+            'sucesso': True,
+            'orgao': 'FEAM',
+            'acao': 'LISTAR_DMRS',
+            'dados': resultado,
         }
 
     except HTTPException as e:
         raise e
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # =========================
 # FEAM - Buscar Declaração DMR
 # =========================
-@app.post("/feam/dmr/buscar-declaracao")
+@app.post('/feam/dmr/buscar-declaracao')
 def feam_buscar_declaracao_dmr(dados: BuscarDeclaracaoDMRRequest):
 
     try:
         resultado = buscar_declaracao_dmr(
             id_declaracao=dados.idDeclaracao,
             condicao=dados.condicao,
-            jsessionid=dados.JSESSIONID
+            jsessionid=dados.JSESSIONID,
         )
 
         return {
-            "sucesso": True,
-            "orgao": "FEAM",
-            "acao": "BUSCAR_DECLARACAO_DMR",
-            "dados": resultado
+            'sucesso': True,
+            'orgao': 'FEAM',
+            'acao': 'BUSCAR_DECLARACAO_DMR',
+            'dados': resultado,
         }
 
     except HTTPException as e:
         raise e
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/feam/busca-parceiro")
+@app.post('/feam/busca-parceiro')
 def feam_buscar_parceiro(dados: BuscaParceiro):
-    tipo = (dados.tipoParceiro or "").strip().lower()
+    tipo = (dados.tipoParceiro or '').strip().lower()
 
-    if tipo == "destino":
+    if tipo == 'destino':
         resultado = buscar_destino_feam(dados.cnpj)
-    elif tipo == "transportador":
+    elif tipo == 'transportador':
         resultado = buscar_transportador_feam(dados.cnpj)
-    elif tipo == "armazenador":
+    elif tipo == 'armazenador':
         resultado = buscar_armazenador_feam(dados.cnpj)
     else:
-        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
+        raise HTTPException(
+            status_code=400,
+            detail='Tipo de parceiro inválido. Use: destino, transportador, armazenador',
+        )
 
-    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
-        
+    return {'tipoParceiro': tipo, 'cnpj': dados.cnpj, 'resultado': resultado}
+
 
 # ================================================================================================================
 # IMA
 # ================================================================================================================
 
-@app.post("/ima/retorna-manifesto-codigo-de-barras")
+
+@app.post('/ima/retorna-manifesto-codigo-de-barras')
 def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
     try:
         manifesto = consultar_manifesto_ima(
             codigo_barras=dados.codigoBarras,
             unidade_gerador=dados.unidadeGerador,
             senha=dados.senha,
-            cnpj=dados.cnpj
+            cnpj=dados.cnpj,
         )
 
-        return {
-            "sucesso": True,
-            "dados": manifesto
-        }
+        return {'sucesso': True, 'dados': manifesto}
 
     except HTTPException as e:
         raise e
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/ima/busca-parceiro")
+
+@app.post('/ima/busca-parceiro')
 def ima_buscar_parceiro(dados: BuscaParceiro):
-    tipo = (dados.tipoParceiro or "").strip().lower()
+    tipo = (dados.tipoParceiro or '').strip().lower()
 
-    if tipo == "destino":
+    if tipo == 'destino':
         resultado = buscar_destino_ima(dados.cnpj)
-    elif tipo == "transportador":
+    elif tipo == 'transportador':
         resultado = buscar_transportador_ima(dados.cnpj)
-    elif tipo == "armazenador":
+    elif tipo == 'armazenador':
         resultado = buscar_armazenador_ima(dados.cnpj)
     else:
-        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
+        raise HTTPException(
+            status_code=400,
+            detail='Tipo de parceiro inválido. Use: destino, transportador, armazenador',
+        )
 
-    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
+    return {'tipoParceiro': tipo, 'cnpj': dados.cnpj, 'resultado': resultado}
 
 
 @app.post('/ima/salvarManifesto')
 async def salvar_manifesto_ima_route(request: Request):
-    logger = logging.getLogger("ima")
+    logger = logging.getLogger('ima')
     logger.setLevel(logging.INFO)
 
     try:
-        logger.info("Iniciando rota /ima/salvarManifesto")
+        logger.info('Iniciando rota /ima/salvarManifesto')
 
         data = await request.json()
-        logger.info(f"Body recebido na rota: {json.dumps(data, ensure_ascii=False)}")
-        print(f"Body recebido na rota: {json.dumps(data, ensure_ascii=False)}")
+        logger.info(f'Body recebido na rota: {json.dumps(data, ensure_ascii=False)}')
+        print(f'Body recebido na rota: {json.dumps(data, ensure_ascii=False)}')
 
-        url = data.get("url")
-        manifesto = data.get("manifesto")
+        url = data.get('url')
+        manifesto = data.get('manifesto')
 
-        logger.info(f" URL recebida: {url}")
-        logger.info(f" Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}")
-        print(f" ✅ URL recebida: {url}")
-        print(f" ✅ Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}")
+        logger.info(f' URL recebida: {url}')
+        logger.info(f' Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}')
+        print(f' ✅ URL recebida: {url}')
+        print(f' ✅ Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}')
 
         if not url or manifesto is None:
-            logger.warning(" ⚠️ Campos url e manifesto são obrigatórios")
-            print(" ⚠️ Campos url e manifesto são obrigatórios")
+            logger.warning(' ⚠️ Campos url e manifesto são obrigatórios')
+            print(' ⚠️ Campos url e manifesto são obrigatórios')
 
-            raise HTTPException(
-                status_code=400,
-                detail="Campos url e manifesto são obrigatórios"
-            )
+            raise HTTPException(status_code=400, detail='Campos url e manifesto são obrigatórios')
 
         response_inea = salvar_manifesto_ima(url, manifesto)
 
-        logger.info(f" ✅ Status retornado pelo IMA: {response_inea.status_code}")
-        logger.info(f" ✅ Body retornado pelo IMA: {response_inea.text}")
-        
-        
-        print(f" ✅ Status retornado pelo IMA: {response_inea.status_code}")
-        print(f"✅ Body retornado pelo IMA: {response_inea.text}")
+        logger.info(f' ✅ Status retornado pelo IMA: {response_inea.status_code}')
+        logger.info(f' ✅ Body retornado pelo IMA: {response_inea.text}')
 
+        print(f' ✅ Status retornado pelo IMA: {response_inea.status_code}')
+        print(f'✅ Body retornado pelo IMA: {response_inea.text}')
 
         return Response(
             content=response_inea.text,
             status_code=response_inea.status_code,
-            media_type="application/json"
+            media_type='application/json',
         )
 
     except HTTPException:
         raise
     except Exception as error:
-        logger.exception("Erro inesperado na rota /inea/salvarManifesto")
-        print(" ❌ Erro inesperado na rota /inea/salvarManifesto")
-        
+        logger.exception('Erro inesperado na rota /inea/salvarManifesto')
+        print(' ❌ Erro inesperado na rota /inea/salvarManifesto')
 
         return Response(
-            content=json.dumps(
-                {"ok": False, "error": str(error)},
-                ensure_ascii=False
-            ),
+            content=json.dumps({'ok': False, 'error': str(error)}, ensure_ascii=False),
             status_code=500,
-            media_type="application/json"
+            media_type='application/json',
         )
 
 
@@ -341,51 +364,49 @@ async def salvar_manifesto_ima_route(request: Request):
 # FEPAM
 # =========================
 
-@app.post("/fepam/retorna-manifesto-codigo-de-barras")
+
+@app.post('/fepam/retorna-manifesto-codigo-de-barras')
 def fepam_retorna_manifesto(dados: ConsultaFepamManifestoRequest):
     try:
         manifesto = retorna_manifesto_fepam(
             cnpj=dados.cnpj,
             cpf=dados.cpf,
             senha=dados.senha,
-            manifesto_codigo=dados.manifestoCodigo
+            manifesto_codigo=dados.manifestoCodigo,
         )
 
-        return {
-            "sucesso": True,
-            "orgao": "FEPAM",
-            "dados": manifesto
-        }
+        return {'sucesso': True, 'orgao': 'FEPAM', 'dados': manifesto}
 
     except HTTPException as e:
         raise e
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/fepam/busca-parceiro")
+@app.post('/fepam/busca-parceiro')
 def fepam_buscar_parceiro(dados: BuscaParceiro):
-    tipo = (dados.tipoParceiro or "").strip().lower()
+    tipo = (dados.tipoParceiro or '').strip().lower()
 
-    if tipo == "destino":
+    if tipo == 'destino':
         resultado = buscar_destino_fepam(dados.cnpj)
-    elif tipo == "transportador":
+    elif tipo == 'transportador':
         resultado = buscar_transportador_fepam(dados.cnpj)
-    elif tipo == "armazenador":
+    elif tipo == 'armazenador':
         resultado = buscar_armazenador_fepam(dados.cnpj)
     else:
-        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
+        raise HTTPException(
+            status_code=400,
+            detail='Tipo de parceiro inválido. Use: destino, transportador, armazenador',
+        )
 
-    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
+    return {'tipoParceiro': tipo, 'cnpj': dados.cnpj, 'resultado': resultado}
+
 
 # =========================
 # INEA - RJ
 # =========================
-@app.post("/inea/retornaListaInea")
+@app.post('/inea/retornaListaInea')
 def inea_retorna_lista(dados: ConsultaListaIneaRequest):
     """
     Proxy controlado para consulta das listas auxiliares do INEA.
@@ -396,18 +417,18 @@ def inea_retorna_lista(dados: ConsultaListaIneaRequest):
     }
     """
 
-    logger_inea = logging.getLogger("inea")
+    logger_inea = logging.getLogger('inea')
 
     try:
         response_inea = retorna_lista_inea(dados.url)
 
         content_type = response_inea.headers.get(
-            "Content-Type",
-            "application/json; charset=utf-8",
+            'Content-Type',
+            'application/json; charset=utf-8',
         )
 
         logger_inea.info(
-            "[API INEA] Resposta repassada ao client | status=%s",
+            '[API INEA] Resposta repassada ao client | status=%s',
             response_inea.status_code,
         )
 
@@ -415,8 +436,8 @@ def inea_retorna_lista(dados: ConsultaListaIneaRequest):
             content=response_inea.content,
             status_code=response_inea.status_code,
             headers={
-                "Content-Type": content_type,
-                "Cache-Control": "no-store",
+                'Content-Type': content_type,
+                'Cache-Control': 'no-store',
             },
         )
 
@@ -424,16 +445,15 @@ def inea_retorna_lista(dados: ConsultaListaIneaRequest):
         raise
 
     except Exception as error:
-        logger_inea.exception(
-            "[API INEA] Erro inesperado na rota retornaListaInea"
-        )
+        logger_inea.exception('[API INEA] Erro inesperado na rota retornaListaInea')
 
         raise HTTPException(
             status_code=500,
-            detail=f"Erro inesperado ao consultar o INEA: {str(error)}",
+            detail=f'Erro inesperado ao consultar o INEA: {str(error)}',
         )
-        
-@app.post("/inea/retorna-manifesto-codigo-de-barras")
+
+
+@app.post('/inea/retorna-manifesto-codigo-de-barras')
 def inea_retorna_manifesto(dados: ConsultaIneaManifestoRequest):
     try:
         manifesto = retorna_manifesto_inea(
@@ -441,53 +461,41 @@ def inea_retorna_manifesto(dados: ConsultaIneaManifestoRequest):
             senha=dados.senha,
             cnpj=dados.cnpj,
             unidade_gerador=dados.unidadeGerador,
-            codigo_barras=dados.codigoBarras
+            codigo_barras=dados.codigoBarras,
         )
 
-        return {
-            "sucesso": True,
-            "orgao": "INEA",
-            "dados": manifesto
-        }
+        return {'sucesso': True, 'orgao': 'INEA', 'dados': manifesto}
 
     except HTTPException as e:
         raise e
 
-@app.post("/inea/downloadManifesto")
+
+@app.post('/inea/downloadManifesto')
 def download_manifesto(
     dados: DownloadManifestoIneaRequest,
 ):
-    codigo_barras, _ = validar_url_download_manifesto_inea(
-        dados.url
-    )
+    codigo_barras, _ = validar_url_download_manifesto_inea(dados.url)
 
-    response_inea = download_manifesto_inea(
-        dados.url
-    )
+    response_inea = download_manifesto_inea(dados.url)
 
-    conteudo = response_inea.content or b""
+    conteudo = response_inea.content or b''
 
     content_type = response_inea.headers.get(
-        "Content-Type",
-        "application/octet-stream",
+        'Content-Type',
+        'application/octet-stream',
     )
 
-    is_pdf = (
-        "application/pdf" in content_type.lower()
-        or conteudo.startswith(b"%PDF")
-    )
+    is_pdf = 'application/pdf' in content_type.lower() or conteudo.startswith(b'%PDF')
 
     if response_inea.status_code == 200 and is_pdf:
         return Response(
             content=conteudo,
             status_code=200,
-            media_type="application/pdf",
+            media_type='application/pdf',
             headers={
-                "Content-Disposition": (
-                    f'attachment; filename="MTR-{codigo_barras}.pdf"'
-                ),
-                "Cache-Control": "no-store",
-                "Content-Length": str(len(conteudo)),
+                'Content-Disposition': (f'attachment; filename="MTR-{codigo_barras}.pdf"'),
+                'Cache-Control': 'no-store',
+                'Content-Length': str(len(conteudo)),
             },
         )
 
@@ -495,81 +503,75 @@ def download_manifesto(
         content=conteudo,
         status_code=response_inea.status_code,
         headers={
-            "Content-Type": content_type,
-            "Cache-Control": "no-store",
+            'Content-Type': content_type,
+            'Cache-Control': 'no-store',
         },
     )
 
+
 @app.post('/inea/salvarManifesto')
 async def salvar_manifesto_inea_route(request: Request):
-    logger = logging.getLogger("inea")
+    logger = logging.getLogger('inea')
     logger.setLevel(logging.INFO)
 
     try:
-        logger.info("Iniciando rota /inea/salvarManifesto")
+        logger.info('Iniciando rota /inea/salvarManifesto')
 
         data = await request.json()
-        logger.info(f"Body recebido na rota: {json.dumps(data, ensure_ascii=False)}")
-        print(f"Body recebido na rota: {json.dumps(data, ensure_ascii=False)}")
+        logger.info(f'Body recebido na rota: {json.dumps(data, ensure_ascii=False)}')
+        print(f'Body recebido na rota: {json.dumps(data, ensure_ascii=False)}')
 
-        url = data.get("url")
-        manifesto = data.get("manifesto")
+        url = data.get('url')
+        manifesto = data.get('manifesto')
 
-        logger.info(f" URL recebida: {url}")
-        logger.info(f" Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}")
-        print(f" ✅ URL recebida: {url}")
-        print(f" ✅ Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}")
+        logger.info(f' URL recebida: {url}')
+        logger.info(f' Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}')
+        print(f' ✅ URL recebida: {url}')
+        print(f' ✅ Manifesto recebido: {json.dumps(manifesto, ensure_ascii=False)}')
 
         if not url or manifesto is None:
-            logger.warning(" ⚠️ Campos url e manifesto são obrigatórios")
-            print(" ⚠️ Campos url e manifesto são obrigatórios")
+            logger.warning(' ⚠️ Campos url e manifesto são obrigatórios')
+            print(' ⚠️ Campos url e manifesto são obrigatórios')
 
-            raise HTTPException(
-                status_code=400,
-                detail="Campos url e manifesto são obrigatórios"
-            )
+            raise HTTPException(status_code=400, detail='Campos url e manifesto são obrigatórios')
 
         response_inea = salvar_manifesto_inea(url, manifesto)
 
-        logger.info(f" ✅ Status retornado pelo INEA: {response_inea.status_code}")
-        logger.info(f" ✅ Body retornado pelo INEA: {response_inea.text}")
-        
-        
-        print(f" ✅ Status retornado pelo INEA: {response_inea.status_code}")
-        print(f"✅ Body retornado pelo INEA: {response_inea.text}")
+        logger.info(f' ✅ Status retornado pelo INEA: {response_inea.status_code}')
+        logger.info(f' ✅ Body retornado pelo INEA: {response_inea.text}')
 
+        print(f' ✅ Status retornado pelo INEA: {response_inea.status_code}')
+        print(f'✅ Body retornado pelo INEA: {response_inea.text}')
 
         return Response(
             content=response_inea.text,
             status_code=response_inea.status_code,
-            media_type="application/json"
+            media_type='application/json',
         )
 
     except HTTPException:
         raise
     except Exception as error:
-        logger.exception("Erro inesperado na rota /inea/salvarManifesto")
-        print(" ❌ Erro inesperado na rota /inea/salvarManifesto")
-        
+        logger.exception('Erro inesperado na rota /inea/salvarManifesto')
+        print(' ❌ Erro inesperado na rota /inea/salvarManifesto')
 
         return Response(
-            content=json.dumps(
-                {"ok": False, "error": str(error)},
-                ensure_ascii=False
-            ),
+            content=json.dumps({'ok': False, 'error': str(error)}, ensure_ascii=False),
             status_code=500,
-            media_type="application/json"
+            media_type='application/json',
         )
+
 
 def mascarar_manifesto(manifesto):
     manifesto_safe = dict(manifesto)
-    if "login" in manifesto_safe:
-        manifesto_safe["login"] = "***"
-    if "senha" in manifesto_safe:
-        manifesto_safe["senha"] = "***"
+    if 'login' in manifesto_safe:
+        manifesto_safe['login'] = '***'
+    if 'senha' in manifesto_safe:
+        manifesto_safe['senha'] = '***'
     return manifesto_safe
 
-@app.post("/inea/cancelarManifesto")
+
+@app.post('/inea/cancelarManifesto')
 def cancelar_manifesto_inea_route(
     dados: CancelarManifestoIneaRequest,
 ):
@@ -579,185 +581,183 @@ def cancelar_manifesto_inea_route(
     )
 
     content_type = response_inea.headers.get(
-        "Content-Type",
-        "application/json; charset=utf-8",
+        'Content-Type',
+        'application/json; charset=utf-8',
     )
 
     return Response(
         content=response_inea.content,
         status_code=response_inea.status_code,
         headers={
-            "Content-Type": content_type,
-            "Cache-Control": "no-store",
+            'Content-Type': content_type,
+            'Cache-Control': 'no-store',
         },
     )
+
 
 # =========================
 # SINIR - Federal
 # =========================
-@app.post("/sinir/retorna-manifesto")
+@app.post('/sinir/retorna-manifesto')
 def sinir_retorna_manifesto(dados: ConsultaSinirManifestoRequest):
     try:
-        token = gerar_token_sinir(
-            cpf_cnpj=dados.cpfCnpj,
-            senha=dados.senha,
-            unidade=dados.unidade
-        )
+        token = gerar_token_sinir(cpf_cnpj=dados.cpfCnpj, senha=dados.senha, unidade=dados.unidade)
 
-        manifesto = retorna_manifesto_sinir(
-            token_bearer=token,
-            manifesto_numero=dados.manifestoNumero
-        )
+        manifesto = retorna_manifesto_sinir(token_bearer=token, manifesto_numero=dados.manifestoNumero)
 
-        return {
-            "sucesso": True,
-            "orgao": "SINIR",
-            "dados": manifesto
-        }
+        return {'sucesso': True, 'orgao': 'SINIR', 'dados': manifesto}
 
     except HTTPException as e:
         raise e
 
-@app.post("/sinir/busca-parceiro")
-def sinir_buscar_parceiro(dados: BuscaParceiro):
-    tipo = (dados.tipoParceiro or "").strip().lower()
 
-    if tipo == "destino":
+@app.post('/sinir/busca-parceiro')
+def sinir_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or '').strip().lower()
+
+    if tipo == 'destino':
         resultado = retorna_dados_destino_sinir(dados.cnpj)
-    elif tipo == "transportador":
+    elif tipo == 'transportador':
         resultado = retorna_dados_transportador_sinir(dados.cnpj)
-    elif tipo == "armazenador":
+    elif tipo == 'armazenador':
         resultado = retorna_dados_armazenador_sinir(dados.cnpj)
     else:
-        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
-
-    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
-
-@app.post("/sinir/busca-modelos")
-def sinir_buscar_modelos(dados: ConsultaSinirModeloRequest):
-    try:
-        modelos = busca_modelos_sinir(
-            login=dados.cpfCnpj,
-            senha=dados.senha,
-            parCodigo=dados.parCodigo
+        raise HTTPException(
+            status_code=400,
+            detail='Tipo de parceiro inválido. Use: destino, transportador, armazenador',
         )
 
-        return {
-            "sucesso": True,
-            "orgao": "SINIR",
-            "dados": modelos
-        }
+    return {'tipoParceiro': tipo, 'cnpj': dados.cnpj, 'resultado': resultado}
+
+
+@app.post('/sinir/busca-modelos')
+def sinir_buscar_modelos(dados: ConsultaSinirModeloRequest):
+    try:
+        modelos = busca_modelos_sinir(login=dados.cpfCnpj, senha=dados.senha, parCodigo=dados.parCodigo)
+
+        return {'sucesso': True, 'orgao': 'SINIR', 'dados': modelos}
 
     except HTTPException as e:
         raise e
+
 
 # =========================
 # SIGOR / CETESB - SP
 # =========================
-@app.post("/sigor/retorna-manifesto")
+@app.post('/sigor/retorna-manifesto')
 def sigor_retorna_manifesto(dados: ConsultaSigorManifestoRequest):
     try:
-        token = gerar_token_sigor(
-            cpf_cnpj=dados.cpfCnpj,
-            senha=dados.senha,
-            unidade=dados.unidade
-        )
+        token = gerar_token_sigor(cpf_cnpj=dados.cpfCnpj, senha=dados.senha, unidade=dados.unidade)
 
-        manifesto = retorna_manifesto_sigor(
-            token_bearer=token,
-            manifesto_numero=dados.manifestoNumero
-        )
+        manifesto = retorna_manifesto_sigor(token_bearer=token, manifesto_numero=dados.manifestoNumero)
 
-        return {
-            "sucesso": True,
-            "orgao": "SIGOR",
-            "dados": manifesto
-        }
+        return {'sucesso': True, 'orgao': 'SIGOR', 'dados': manifesto}
 
     except HTTPException as e:
         raise e
 
-@app.post("/sigor/busca-parceiro")
-def sigor_buscar_parceiro(dados: BuscaParceiro):
-    tipo = (dados.tipoParceiro or "").strip().lower()
 
-    if tipo == "destino":
+@app.post('/sigor/busca-parceiro')
+def sigor_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or '').strip().lower()
+
+    if tipo == 'destino':
         resultado = retorna_dados_destino_sigor(dados.cnpj)
-    elif tipo == "transportador":
+    elif tipo == 'transportador':
         resultado = retorna_dados_transportador_sigor(dados.cnpj)
-    elif tipo == "armazenador":
+    elif tipo == 'armazenador':
         resultado = retorna_dados_armazenador_sigor(dados.cnpj)
     else:
-        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
-
-    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
-
-@app.post("/sigor/busca-modelos")
-def sigor_buscar_modelos(dados: ConsultaSigorModeloRequest):
-    try:
-        modelos = busca_modelos_sigor(
-            login=dados.cpfCnpj,
-            senha=dados.senha,
-            parCodigo=dados.parCodigo
+        raise HTTPException(
+            status_code=400,
+            detail='Tipo de parceiro inválido. Use: destino, transportador, armazenador',
         )
 
-        return {
-            "sucesso": True,
-            "orgao": "SIGOR",
-            "dados": modelos
-        }
+    return {'tipoParceiro': tipo, 'cnpj': dados.cnpj, 'resultado': resultado}
+
+
+@app.post('/sigor/busca-modelos')
+def sigor_buscar_modelos(dados: ConsultaSigorModeloRequest):
+    try:
+        modelos = busca_modelos_sigor(login=dados.cpfCnpj, senha=dados.senha, parCodigo=dados.parCodigo)
+
+        return {'sucesso': True, 'orgao': 'SIGOR', 'dados': modelos}
 
     except HTTPException as e:
         raise e
+
 
 # =========================
 # SEMAD - GO
 # =========================
-@app.post("/semad/retorna-manifesto-codigo-de-barras")
+@app.post('/semad/retorna-manifesto-codigo-de-barras')
 def semad_retorna_manifesto(dados: ConsultaSemadManifestoRequest):
     try:
         token = gerar_token_semad(
             pessoa_codigo=dados.pessoaCodigo,
             cnpj=dados.cnpj,
             cpf=dados.cpf,
-            senha=dados.senha
+            senha=dados.senha,
         )
 
-        manifesto = retorna_manifesto_semad(
-            token=token,
-            codigo_barras=dados.codigoBarras
-        )
+        manifesto = retorna_manifesto_semad(token=token, codigo_barras=dados.codigoBarras)
 
-        return {
-            "sucesso": True,
-            "orgao": "SEMAD",
-            "dados": manifesto
-        }
+        return {'sucesso': True, 'orgao': 'SEMAD', 'dados': manifesto}
 
     except HTTPException as e:
         raise e
 
-@app.post("/semad/busca-parceiro")
-def semad_buscar_parceiro(dados: BuscaParceiro):
-    tipo = (dados.tipoParceiro or "").strip().lower()
 
-    if tipo == "destino":
+@app.post('/semad/busca-parceiro')
+def semad_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or '').strip().lower()
+
+    if tipo == 'destino':
         resultado = buscar_destino_semad(dados.cnpj)
-    elif tipo == "transportador":
+    elif tipo == 'transportador':
         resultado = buscar_transportador_semad(dados.cnpj)
-    elif tipo == "armazenador":
+    elif tipo == 'armazenador':
         resultado = buscar_armazenador_semad(dados.cnpj)
     else:
-        raise HTTPException(status_code=400, detail="Tipo de parceiro inválido. Use: destino, transportador, armazenador")
+        raise HTTPException(
+            status_code=400,
+            detail='Tipo de parceiro inválido. Use: destino, transportador, armazenador',
+        )
 
-    return {"tipoParceiro": tipo, "cnpj": dados.cnpj, "resultado": resultado}
+    return {'tipoParceiro': tipo, 'cnpj': dados.cnpj, 'resultado': resultado}
 
 
+@app.post('/semad/download-manifesto-codigo-de-barras')
+def semad_download_manifesto(dados: ConsultaSemadManifestoRequest):
+    response_semad = download_mtr_semad(
+        pessoa_codigo=dados.pessoaCodigo, cnpj=dados.cnpj, cpf=dados.cpf, senha=dados.senha, codigo_barras=dados.codigoBarras
+    )
 
-@app.get("/healthz")
+    conteudo = response_semad.content or b''
+
+    content_type = response_semad.headers.get('Content-Type', 'application/octet-stream')
+
+    is_pdf = 'application/pdf' in content_type.lower() or conteudo.startswith(b'%PDF')
+
+    if response_semad.status_code == 200 and is_pdf:
+        return Response(
+            content=conteudo,
+            status_code=200,
+            media_type='application/pdf',
+            headers={
+                'Content-Disposition': (f'attachment; filename="MTR-{dados.codigoBarras}.pdf"'),
+                'Cache-Control': 'no-store',
+                'Content-Length': str(len(conteudo)),
+            },
+        )
+
+    return Response(content=conteudo, status_code=response_semad.status_code, media_type=content_type, headers={'Cache-Control': 'no-store'})
+
+
+@app.get('/healthz')
 def healthcheck():
     return {
-        "status": "ok",
-        "service": "tree-apis",
-        "timestamp": datetime.utcnow().isoformat() + "Z"
+        'status': 'ok',
+        'service': 'tree-apis',
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
     }

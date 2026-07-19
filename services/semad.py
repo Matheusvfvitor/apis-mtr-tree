@@ -334,6 +334,133 @@ def retorna_manifesto_semad(
     return response.json()
 
 
+def download_mtr_semad(
+    pessoa_codigo: int,
+    cnpj: str,
+    cpf: str,
+    senha: str,
+    codigo_barras: str
+) -> requests.Response:
+    codigo_barras = str(codigo_barras or "").strip()
+
+    if len(codigo_barras) != 34:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "O código de barras do MTR SEMAD "
+                "deve possuir 34 caracteres."
+            )
+        )
+
+    session = requests.Session()
+
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/145.0.0.0 Safari/537.36"
+        ),
+        "Accept": "*/*"
+    })
+
+    try:
+        session.get(
+            "https://mtr.meioambiente.go.gov.br/",
+            timeout=20
+        )
+    except requests.RequestException:
+        pass
+
+    token_url = f"{SEMAD_BASE_URL}/gettoken"
+
+    token_payload = {
+        "pessoaCodigo": pessoa_codigo,
+        "pessoaCnpj": cnpj,
+        "usuarioCpf": cpf,
+        "senha": senha
+    }
+
+    try:
+        token_response = session.post(
+            token_url,
+            json=token_payload,
+            headers={
+                "Content-Type": "application/json"
+            },
+            timeout=30
+        )
+    except requests.RequestException as error:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Erro de comunicação com a SEMAD "
+                f"durante a autenticação: {str(error)}"
+            )
+        )
+
+    if token_response.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "A SEMAD recusou a autenticação. "
+                f"Status: {token_response.status_code}"
+            )
+        )
+
+    try:
+        token_data = token_response.json()
+    except ValueError:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "A SEMAD retornou uma resposta inválida "
+                "durante a autenticação."
+            )
+        )
+
+    token = token_data.get("token")
+
+    if (
+        token_data.get("retornoCodigo") != 0
+        or not token
+    ):
+        mensagem_semad = (
+            token_data.get("retorno")
+            or "Credenciais não autorizadas."
+        )
+
+        raise HTTPException(
+            status_code=401,
+            detail=f"Falha na autenticação SEMAD: {mensagem_semad}"
+        )
+
+    download_url = (
+        f"{SEMAD_BASE_URL}"
+        f"/buscaPdfManifestoPorCodigoBarras/{codigo_barras}"
+    )
+
+
+    try:
+        download_response = session.post(
+            download_url,
+            headers={
+                "Accept": "application/pdf",
+                "Content-Type": "application/pdf",
+                "Authorization": f"Bearer {token}"
+            },
+            timeout=60
+        )
+    except requests.RequestException as error:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Erro de comunicação com a SEMAD "
+                f"durante o download: {str(error)}"
+            )
+        )
+
+    return download_response
+
 #buscar_transportador_semad('39228967000160')
 #buscar_destino_semad('39228967000160')
 #buscar_armazenador_semad('39228967000160')
