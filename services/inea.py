@@ -13,7 +13,7 @@ import time
 import json
 import logging
 import firebase_admin
-from firebase_admin import firestore
+from firebase_admin import credentials, firestore
 
 
 logger = logging.getLogger("inea")
@@ -47,12 +47,16 @@ INEA_ALLOWED_HOSTS = {
 INEA_RELAY_COLLECTION = "configuracoes"
 INEA_RELAY_DOCUMENT = "ineaRelay"
 INEA_RELAY_CACHE_SECONDS = 30
+INEA_FIREBASE_APP_NAME = "inea-relay-firestore"
+
+FIREBASE_KEY = os.getenv("FIREBASE_KEY", "").strip()
 
 _INEA_RELAY_CACHE = {
     "url": "",
     "expires_at": 0.0,
 }
 _INEA_RELAY_CACHE_LOCK = threading.Lock()
+_FIREBASE_APP_LOCK = threading.Lock()
 
 
 class RegistrarIneaRelayRequest(BaseModel):
@@ -60,12 +64,34 @@ class RegistrarIneaRelayRequest(BaseModel):
 
 
 def obter_firestore_client():
-    """Obtém e valida o cliente Firestore do app Firebase padrão."""
+    """Obtém o Firestore usando o JSON da conta de serviço em FIREBASE_KEY."""
+
+    if not FIREBASE_KEY:
+        raise RuntimeError(
+            "A variável de ambiente FIREBASE_KEY não foi configurada."
+        )
 
     try:
-        firebase_app = firebase_admin.get_app()
-    except ValueError:
-        firebase_app = firebase_admin.initialize_app()
+        firebase_key_data = json.loads(FIREBASE_KEY)
+    except (json.JSONDecodeError, TypeError) as error:
+        raise RuntimeError(
+            "FIREBASE_KEY não contém um JSON válido."
+        ) from error
+
+    if not isinstance(firebase_key_data, dict):
+        raise RuntimeError(
+            "FIREBASE_KEY deve conter um objeto JSON de conta de serviço."
+        )
+
+    with _FIREBASE_APP_LOCK:
+        try:
+            firebase_app = firebase_admin.get_app(INEA_FIREBASE_APP_NAME)
+        except ValueError:
+            firebase_credentials = credentials.Certificate(firebase_key_data)
+            firebase_app = firebase_admin.initialize_app(
+                firebase_credentials,
+                name=INEA_FIREBASE_APP_NAME,
+            )
 
     firestore_client = firestore.client(app=firebase_app)
 
