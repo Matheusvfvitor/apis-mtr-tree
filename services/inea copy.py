@@ -2,22 +2,12 @@ import requests
 from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import Dict, Tuple, Optional, Union, Any
-from fastapi import FastAPI, Request, HTTPException, APIRouter, Response, Header
+from fastapi import FastAPI, Request, HTTPException, APIRouter, Response
 from urllib.parse import urlparse
 import os
-import re
-import secrets
-import threading
-import time
 
 import json
 import logging
-import firebase_admin
-from firebase_admin import firestore
-
-
-logger = logging.getLogger("inea")
-logger.setLevel(logging.INFO)
 
 router = APIRouter(
     prefix="/inea",
@@ -25,7 +15,7 @@ router = APIRouter(
 )
 
 # ==========================================================
-# ConfiguraÃ§Ã£o do workaround da API INEA
+# Configuração do workaround da API INEA
 # ==========================================================
 
 INEA_WORKAROUND_ENABLED = (
@@ -44,320 +34,11 @@ INEA_ALLOWED_HOSTS = {
     "mtr.inea.rj.gov.br",
 }
 
-INEA_RELAY_COLLECTION = "configuracoes"
-INEA_RELAY_DOCUMENT = "ineaRelay"
-INEA_RELAY_CACHE_SECONDS = 30
-
-_INEA_RELAY_CACHE = {
-    "url": "",
-    "expires_at": 0.0,
-}
-_INEA_RELAY_CACHE_LOCK = threading.Lock()
-_FIRESTORE_CLIENT = None
-
-
-class RegistrarIneaRelayRequest(BaseModel):
-    url: str
-
-
-def obter_firestore_client():
-    """ObtÃ©m uma instÃ¢ncia compartilhada do Firestore via ADC."""
-
-    global _FIRESTORE_CLIENT
-
-    if _FIRESTORE_CLIENT is not None:
-        return _FIRESTORE_CLIENT
-
-    try:
-        firebase_admin.get_app()
-    except ValueError:
-        firebase_admin.initialize_app()
-
-    _FIRESTORE_CLIENT = firestore.client()
-    return _FIRESTORE_CLIENT
-
-
-def validar_url_publica_relay(url: str) -> str:
-    """Valida e normaliza uma URL gerada por Cloudflare Quick Tunnel."""
-
-    try:
-        parsed_url = urlparse((url or "").strip())
-        parsed_port = parsed_url.port
-    except ValueError as error:
-        raise HTTPException(
-            status_code=400,
-            detail=f"URL do relay invÃ¡lida: {str(error)}",
-        )
-
-    hostname = (parsed_url.hostname or "").strip().lower()
-
-    if parsed_url.scheme.lower() != "https":
-        raise HTTPException(
-            status_code=400,
-            detail="A URL pÃºblica do relay deve utilizar HTTPS.",
-        )
-
-    if not re.fullmatch(
-        r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.trycloudflare\.com",
-        hostname,
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="Host do relay nÃ£o autorizado.",
-        )
-
-    if parsed_port not in (None, 443):
-        raise HTTPException(
-            status_code=403,
-            detail="Porta do relay nÃ£o autorizada.",
-        )
-
-    if parsed_url.username or parsed_url.password:
-        raise HTTPException(
-            status_code=400,
-            detail="A URL do relay nÃ£o pode conter credenciais.",
-        )
-
-    if parsed_url.path not in ("", "/"):
-        raise HTTPException(
-            status_code=400,
-            detail="A URL do relay nÃ£o pode conter um caminho.",
-        )
-
-    if parsed_url.query or parsed_url.fragment:
-        raise HTTPException(
-            status_code=400,
-            detail="A URL do relay nÃ£o pode conter query string ou fragmento.",
-        )
-
-    return f"https://{hostname}"
-
-
-def atualizar_cache_inea_relay(url: str) -> None:
-    with _INEA_RELAY_CACHE_LOCK:
-        _INEA_RELAY_CACHE["url"] = url
-        _INEA_RELAY_CACHE["expires_at"] = (
-            time.monotonic() + INEA_RELAY_CACHE_SECONDS
-        )
-
-
-def obter_inea_relay_url(force_refresh: bool = False) -> str:
-    """LÃª a URL atual do relay em configuracoes/ineaRelay."""
-
-    with _INEA_RELAY_CACHE_LOCK:
-        cached_url = _INEA_RELAY_CACHE["url"]
-        cache_is_valid = (
-            cached_url
-            and time.monotonic() < _INEA_RELAY_CACHE["expires_at"]
-        )
-
-    if cache_is_valid and not force_refresh:
-        return cached_url
-
-    try:
-        snapshot = (
-            obter_firestore_client()
-            .collection(INEA_RELAY_COLLECTION)
-            .document(INEA_RELAY_DOCUMENT)
-            .get()
-        )
-    except Exception as error:
-        if cached_url:
-            logger.warning(
-                "[API INEA] Falha ao atualizar URL do relay; "
-                "utilizando cache anterior | erro=%s",
-                str(error),
-            )
-            return cached_url
-
-        logger.exception(
-            "[API INEA] NÃ£o foi possÃ­vel consultar a configuraÃ§Ã£o do relay"
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="NÃ£o foi possÃ­vel consultar a configuraÃ§Ã£o do relay INEA.",
-        )
-
-    if not snapshot.exists:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Relay INEA ainda nÃ£o registrado em "
-                "configuracoes/ineaRelay."
-            ),
-        )
-
-    dados_relay = snapshot.to_dict() or {}
-
-    if dados_relay.get("status") != "online":
-        raise HTTPException(
-            status_code=503,
-            detail="Relay INEA indisponÃ­vel.",
-        )
-
-    try:
-        relay_url = validar_url_publica_relay(dados_relay.get("url", ""))
-    except HTTPException as error:
-        logger.error(
-            "[API INEA] URL invÃ¡lida armazenada no Firestore | detalhe=%s",
-            error.detail,
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="ConfiguraÃ§Ã£o invÃ¡lida do relay INEA.",
-        )
-
-    atualizar_cache_inea_relay(relay_url)
-    return relay_url
-
-
-def executar_post_inea_relay(
-    endpoint_path: str,
-    *,
-    safe_to_retry: bool,
-    **request_kwargs,
-) -> tuple[requests.Response, str]:
-    """Envia uma chamada ao relay e atualiza a URL apÃ³s falha de conexÃ£o."""
-
-    if not INEA_RELAY_KEY:
-        raise HTTPException(
-            status_code=500,
-            detail="INEA_RELAY_KEY nÃ£o configurada.",
-        )
-
-    headers = dict(request_kwargs.pop("headers", {}))
-    headers["X-Tree-Relay-Key"] = INEA_RELAY_KEY
-    request_kwargs["headers"] = headers
-
-    relay_url = obter_inea_relay_url()
-    destino_url = f"{relay_url}{endpoint_path}"
-
-    try:
-        return (
-            requests.post(url=destino_url, **request_kwargs),
-            destino_url,
-        )
-    except (requests.ConnectTimeout, requests.ConnectionError):
-        refreshed_url = relay_url
-
-        try:
-            refreshed_url = obter_inea_relay_url(force_refresh=True)
-        except HTTPException:
-            pass
-
-        if safe_to_retry and refreshed_url != relay_url:
-            refreshed_destino = f"{refreshed_url}{endpoint_path}"
-            logger.warning(
-                "[API INEA] URL do relay alterada; repetindo operaÃ§Ã£o segura | "
-                "endpoint=%s",
-                endpoint_path,
-            )
-            return (
-                requests.post(url=refreshed_destino, **request_kwargs),
-                refreshed_destino,
-            )
-
-        raise
-
-
-@router.post("/relay/register")
-def registrar_inea_relay(
-    dados: RegistrarIneaRelayRequest,
-    x_tree_relay_key: Optional[str] = Header(
-        default=None,
-        alias="X-Tree-Relay-Key",
-    ),
-):
-    """Registra uma nova URL somente apÃ³s validar o health check pÃºblico."""
-
-    if not INEA_RELAY_KEY:
-        raise HTTPException(
-            status_code=500,
-            detail="INEA_RELAY_KEY nÃ£o configurada.",
-        )
-
-    if not x_tree_relay_key or not secrets.compare_digest(
-        x_tree_relay_key,
-        INEA_RELAY_KEY,
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="Chave de registro do relay invÃ¡lida.",
-        )
-
-    relay_url = validar_url_publica_relay(dados.url)
-
-    try:
-        health_response = requests.get(
-            f"{relay_url}/health",
-            timeout=(5, 15),
-            allow_redirects=False,
-        )
-        health_response.raise_for_status()
-        health_data = health_response.json()
-    except (requests.RequestException, ValueError) as error:
-        logger.warning(
-            "[API INEA] Registro recusado: health check falhou | erro=%s",
-            str(error),
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="O health check pÃºblico do relay falhou.",
-        )
-
-    if (
-        health_data.get("status") != "ok"
-        or health_data.get("service") != "tree-inea-local-relay"
-        or health_data.get("relay_key_configured") is not True
-    ):
-        raise HTTPException(
-            status_code=503,
-            detail="O endereÃ§o informado nÃ£o corresponde ao relay INEA esperado.",
-        )
-
-    try:
-        doc_ref = (
-            obter_firestore_client()
-            .collection(INEA_RELAY_COLLECTION)
-            .document(INEA_RELAY_DOCUMENT)
-        )
-        snapshot = doc_ref.get()
-        previous_data = snapshot.to_dict() if snapshot.exists else {}
-        changed = previous_data.get("url") != relay_url
-
-        relay_data = {
-            "url": relay_url,
-            "status": "online",
-            "lastHealthCheck": firestore.SERVER_TIMESTAMP,
-            "source": "cloudflare-quick-tunnel",
-        }
-
-        if changed:
-            relay_data["updatedAt"] = firestore.SERVER_TIMESTAMP
-
-        doc_ref.set(relay_data, merge=True)
-    except Exception as error:
-        logger.exception(
-            "[API INEA] Falha ao registrar URL do relay no Firestore"
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="NÃ£o foi possÃ­vel registrar a URL do relay INEA.",
-        )
-
-    atualizar_cache_inea_relay(relay_url)
-
-    logger.info(
-        "[API INEA] Relay registrado | alterado=%s | url=%s",
-        changed,
-        relay_url,
-    )
-
-    return {
-        "status": "ok",
-        "changed": changed,
-        "url": relay_url,
-    }
+INEA_RELAY_URL = (
+    os.getenv("INEA_RELAY_URL", "")
+    .strip()
+    .rstrip("/")
+)
 
 
 
@@ -423,7 +104,7 @@ def validar_body_cancelamento_inea(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Campos obrigatÃ³rios nÃ£o informados: "
+                "Campos obrigatórios não informados: "
                 f"{', '.join(sorted(campos_ausentes))}"
             ),
         )
@@ -435,7 +116,7 @@ def validar_body_cancelamento_inea(
     if not manifesto_codigo.isdigit():
         raise HTTPException(
             status_code=400,
-            detail="manifestoCodigo deve conter somente nÃºmeros.",
+            detail="manifestoCodigo deve conter somente números.",
         )
 
     cod_unidade = str(
@@ -445,7 +126,7 @@ def validar_body_cancelamento_inea(
     if not cod_unidade.isdigit():
         raise HTTPException(
             status_code=400,
-            detail="codUnidade deve conter somente nÃºmeros.",
+            detail="codUnidade deve conter somente números.",
         )
 
     justificativa = str(
@@ -478,13 +159,13 @@ def validar_url_cancelar_manifesto_inea(
     except ValueError as error:
         raise HTTPException(
             status_code=400,
-            detail=f"URL ou porta invÃ¡lida: {str(error)}",
+            detail=f"URL ou porta inválida: {str(error)}",
         )
 
     except Exception as error:
         raise HTTPException(
             status_code=400,
-            detail=f"URL invÃ¡lida: {str(error)}",
+            detail=f"URL inválida: {str(error)}",
         )
 
     if parsed_url.scheme.lower() != "https":
@@ -498,25 +179,25 @@ def validar_url_cancelar_manifesto_inea(
     if hostname != INEA_HOST:
         raise HTTPException(
             status_code=403,
-            detail="Host da API INEA nÃ£o autorizado.",
+            detail="Host da API INEA não autorizado.",
         )
 
     if parsed_port not in (None, 443):
         raise HTTPException(
             status_code=403,
-            detail="Porta da API INEA nÃ£o autorizada.",
+            detail="Porta da API INEA não autorizada.",
         )
 
     if parsed_url.username or parsed_url.password:
         raise HTTPException(
             status_code=400,
-            detail="A URL nÃ£o pode conter credenciais no host.",
+            detail="A URL não pode conter credenciais no host.",
         )
 
     if parsed_url.query or parsed_url.fragment:
         raise HTTPException(
             status_code=400,
-            detail="A URL nÃ£o pode conter query string ou fragmento.",
+            detail="A URL não pode conter query string ou fragmento.",
         )
 
     path = parsed_url.path.rstrip("/")
@@ -525,7 +206,7 @@ def validar_url_cancelar_manifesto_inea(
         raise HTTPException(
             status_code=403,
             detail=(
-                "Endpoint INEA nÃ£o autorizado para cancelamento. "
+                "Endpoint INEA não autorizado para cancelamento. "
                 "Esperado: /api/cancelarManifesto"
             ),
         )
@@ -557,7 +238,7 @@ def validar_url_download_manifesto_inea(
     except ValueError as error:
         raise HTTPException(
             status_code=400,
-            detail=f"URL ou porta invÃ¡lida: {str(error)}",
+            detail=f"URL ou porta inválida: {str(error)}",
         )
 
     if parsed_url.scheme.lower() != "https":
@@ -570,7 +251,7 @@ def validar_url_download_manifesto_inea(
 
     if hostname not in INEA_ALLOWED_HOSTS:
         logger.warning(
-            "[API INEA] Host recusado na validaÃ§Ã£o | "
+            "[API INEA] Host recusado na validação | "
             "host_recebido=%s | hosts_permitidos=%s",
             hostname,
             sorted(INEA_ALLOWED_HOSTS),
@@ -578,25 +259,25 @@ def validar_url_download_manifesto_inea(
 
         raise HTTPException(
             status_code=403,
-            detail="Host da API INEA nÃ£o autorizado.",
+            detail="Host da API INEA não autorizado.",
         )
 
     if parsed_port not in (None, 443):
         raise HTTPException(
             status_code=403,
-            detail="Porta da API INEA nÃ£o autorizada.",
+            detail="Porta da API INEA não autorizada.",
         )
 
     if parsed_url.username or parsed_url.password:
         raise HTTPException(
             status_code=400,
-            detail="A URL nÃ£o pode conter credenciais no host.",
+            detail="A URL não pode conter credenciais no host.",
         )
 
     if parsed_url.query or parsed_url.fragment:
         raise HTTPException(
             status_code=400,
-            detail="A URL nÃ£o pode conter query string ou fragmento.",
+            detail="A URL não pode conter query string ou fragmento.",
         )
 
     partes = [
@@ -609,7 +290,7 @@ def validar_url_download_manifesto_inea(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Estrutura invÃ¡lida. Esperado: "
+                "Estrutura inválida. Esperado: "
                 "/api/buscaPdfManifestoPorCodigoBarras/"
                 "{cpf}/{senha}/{cnpj}/{unidade}/{codigoDeBarras}"
             ),
@@ -618,13 +299,13 @@ def validar_url_download_manifesto_inea(
     if partes[0] != "api":
         raise HTTPException(
             status_code=400,
-            detail="Prefixo da API INEA invÃ¡lido.",
+            detail="Prefixo da API INEA inválido.",
         )
 
     if partes[1] != "buscaPdfManifestoPorCodigoBarras":
         raise HTTPException(
             status_code=403,
-            detail=f"Endpoint nÃ£o autorizado: {partes[1]}",
+            detail=f"Endpoint não autorizado: {partes[1]}",
         )
 
     cpf = partes[2]
@@ -635,25 +316,25 @@ def validar_url_download_manifesto_inea(
     if not cpf.isdigit() or len(cpf) != 11:
         raise HTTPException(
             status_code=400,
-            detail="CPF de acesso invÃ¡lido.",
+            detail="CPF de acesso inválido.",
         )
 
     if not cnpj.isdigit() or len(cnpj) not in (11, 14):
         raise HTTPException(
             status_code=400,
-            detail="CNPJ ou CPF da unidade invÃ¡lido.",
+            detail="CNPJ ou CPF da unidade inválido.",
         )
 
     if not unidade.isdigit():
         raise HTTPException(
             status_code=400,
-            detail="CÃ³digo da unidade invÃ¡lido.",
+            detail="Código da unidade inválido.",
         )
 
     if not codigo_barras.isdigit():
         raise HTTPException(
             status_code=400,
-            detail="CÃ³digo de barras invÃ¡lido.",
+            detail="Código de barras inválido.",
         )
 
     partes_mascaradas = partes.copy()
@@ -680,7 +361,7 @@ def validar_url_lista_inea(url: str) -> tuple[str, str]:
     except Exception as error:
         raise HTTPException(
             status_code=400,
-            detail=f"URL do INEA invÃ¡lida: {str(error)}",
+            detail=f"URL do INEA inválida: {str(error)}",
         )
 
     if parsed_url.scheme != "https":
@@ -692,19 +373,19 @@ def validar_url_lista_inea(url: str) -> tuple[str, str]:
     if parsed_url.hostname != "mtr.inea.rj.gov.br":
         raise HTTPException(
             status_code=403,
-            detail="Host da API INEA nÃ£o autorizado.",
+            detail="Host da API INEA não autorizado.",
         )
 
     if parsed_url.port not in (None, 443):
         raise HTTPException(
             status_code=403,
-            detail="Porta da API INEA nÃ£o autorizada.",
+            detail="Porta da API INEA não autorizada.",
         )
 
     if parsed_url.query or parsed_url.fragment:
         raise HTTPException(
             status_code=400,
-            detail="A URL do INEA nÃ£o pode conter query string ou fragmento.",
+            detail="A URL do INEA não pode conter query string ou fragmento.",
         )
 
     partes = [
@@ -724,7 +405,7 @@ def validar_url_lista_inea(url: str) -> tuple[str, str]:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Estrutura da URL INEA invÃ¡lida. "
+                "Estrutura da URL INEA inválida. "
                 "Esperado: /api/{endpoint}/{cpf}/{senha}/{cnpj}/{unidade}"
             ),
         )
@@ -732,7 +413,7 @@ def validar_url_lista_inea(url: str) -> tuple[str, str]:
     if partes[0] != "api":
         raise HTTPException(
             status_code=400,
-            detail="Prefixo da API INEA invÃ¡lido.",
+            detail="Prefixo da API INEA inválido.",
         )
 
     endpoint = partes[1]
@@ -740,7 +421,7 @@ def validar_url_lista_inea(url: str) -> tuple[str, str]:
     if endpoint not in INEA_LIST_ENDPOINTS:
         raise HTTPException(
             status_code=403,
-            detail=f"Endpoint INEA nÃ£o autorizado: {endpoint}",
+            detail=f"Endpoint INEA não autorizado: {endpoint}",
         )
 
     # URL mascarada para os logs.
@@ -796,18 +477,36 @@ def cancelar_manifesto_inea(
 
     try:
         if INEA_WORKAROUND_ENABLED:
+            if not INEA_RELAY_URL:
+                raise HTTPException(
+                    status_code=500,
+                    detail="INEA_RELAY_URL não configurada.",
+                )
+
+            if not INEA_RELAY_KEY:
+                raise HTTPException(
+                    status_code=500,
+                    detail="INEA_RELAY_KEY não configurada.",
+                )
+
+            destino_url = (
+                f"{INEA_RELAY_URL.rstrip('/')}"
+                "/inea/cancelarManifesto"
+            )
+
             logger.warning(
                 "[API INEA] Cancelamento utilizando workaround | "
-                "manifesto_codigo=%s",
+                "destino=%s | manifesto_codigo=%s",
+                destino_url,
                 cancelamento.get("manifestoCodigo"),
             )
 
-            response_inea, destino_url = executar_post_inea_relay(
-                "/inea/cancelarManifesto",
-                safe_to_retry=False,
+            response_inea = requests.post(
+                url=destino_url,
                 headers={
                     "Content-Type": "application/json",
                     "Accept": "application/json, text/plain, */*",
+                    "X-Tree-Relay-Key": INEA_RELAY_KEY,
                     "User-Agent": "Tree-ESG-API/1.0",
                     "Connection": "close",
                 },
@@ -852,7 +551,7 @@ def cancelar_manifesto_inea(
 
     except requests.ConnectTimeout as error:
         logger.error(
-            "[API INEA] Timeout de conexÃ£o no cancelamento | "
+            "[API INEA] Timeout de conexão no cancelamento | "
             "modo=%s | destino=%s | erro=%s",
             modo,
             destino_url,
@@ -898,7 +597,7 @@ def cancelar_manifesto_inea(
 
     except requests.RequestException as error:
         logger.error(
-            "[API INEA] Erro de comunicaÃ§Ã£o no cancelamento | "
+            "[API INEA] Erro de comunicação no cancelamento | "
             "modo=%s | destino=%s | erro=%s",
             modo,
             destino_url,
@@ -908,7 +607,7 @@ def cancelar_manifesto_inea(
         raise HTTPException(
             status_code=502,
             detail=(
-                "Erro de comunicaÃ§Ã£o ao cancelar manifesto: "
+                "Erro de comunicação ao cancelar manifesto: "
                 f"{str(error)}"
             ),
         )
@@ -945,7 +644,7 @@ def validar_url_salvar_manifesto_inea(
     except ValueError as error:
         raise HTTPException(
             status_code=400,
-            detail=f"URL ou porta invÃ¡lida: {str(error)}",
+            detail=f"URL ou porta inválida: {str(error)}",
         )
 
     if parsed_url.scheme.lower() != "https":
@@ -959,25 +658,25 @@ def validar_url_salvar_manifesto_inea(
     if hostname != "mtr.inea.rj.gov.br":
         raise HTTPException(
             status_code=403,
-            detail="Host da API INEA nÃ£o autorizado.",
+            detail="Host da API INEA não autorizado.",
         )
 
     if parsed_port not in (None, 443):
         raise HTTPException(
             status_code=403,
-            detail="Porta da API INEA nÃ£o autorizada.",
+            detail="Porta da API INEA não autorizada.",
         )
 
     if parsed_url.username or parsed_url.password:
         raise HTTPException(
             status_code=400,
-            detail="A URL nÃ£o pode conter credenciais no host.",
+            detail="A URL não pode conter credenciais no host.",
         )
 
     if parsed_url.query or parsed_url.fragment:
         raise HTTPException(
             status_code=400,
-            detail="A URL nÃ£o pode conter query string ou fragmento.",
+            detail="A URL não pode conter query string ou fragmento.",
         )
 
     path = parsed_url.path.rstrip("/")
@@ -986,7 +685,7 @@ def validar_url_salvar_manifesto_inea(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Endpoint invÃ¡lido. Esperado: "
+                "Endpoint inválido. Esperado: "
                 "/api/salvarManifestoLote"
             ),
         )
@@ -1008,7 +707,7 @@ def retorna_lista_inea(url: str) -> requests.Response:
     Com INEA_WORKAROUND_ENABLED=true:
         API Tree -> Cloudflare Tunnel -> Relay local -> API INEA
 
-    A resposta HTTP recebida Ã© devolvida integralmente para a rota.
+    A resposta HTTP recebida é devolvida integralmente para a rota.
     """
 
     endpoint, url_mascarada = validar_url_lista_inea(url)
@@ -1025,19 +724,42 @@ def retorna_lista_inea(url: str) -> requests.Response:
         # WORKAROUND: encaminha pelo relay local
         # ======================================================
         if INEA_WORKAROUND_ENABLED:
-            logger.warning(
-                "[API INEA] Workaround habilitado | "
-                "endpoint=%s | url=%s",
-                endpoint,
-                url_mascarada,
+            if not INEA_RELAY_URL:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas a variável "
+                        "INEA_RELAY_URL não está configurada."
+                    ),
+                )
+
+            if not INEA_RELAY_KEY:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas a variável "
+                        "INEA_RELAY_KEY não está configurada."
+                    ),
+                )
+
+            relay_endpoint = (
+                f"{INEA_RELAY_URL}/inea/retornaListaInea"
             )
 
-            response_inea, _ = executar_post_inea_relay(
-                "/inea/retornaListaInea",
-                safe_to_retry=True,
+            logger.warning(
+                "[API INEA] Workaround habilitado | "
+                "endpoint=%s | url=%s | relay=%s",
+                endpoint,
+                url_mascarada,
+                INEA_RELAY_URL,
+            )
+
+            response_inea = requests.post(
+                url=relay_endpoint,
                 headers={
                     "Accept": "application/json",
                     "Content-Type": "application/json",
+                    "X-Tree-Relay-Key": INEA_RELAY_KEY,
                     "User-Agent": "Tree-ESG-API/1.0",
                 },
                 json={
@@ -1076,7 +798,7 @@ def retorna_lista_inea(url: str) -> requests.Response:
         )
 
         logger.error(
-            "[API INEA] Timeout de conexÃ£o | "
+            "[API INEA] Timeout de conexão | "
             "destino=%s | endpoint=%s | erro=%s",
             destino,
             endpoint,
@@ -1085,7 +807,7 @@ def retorna_lista_inea(url: str) -> requests.Response:
 
         raise HTTPException(
             status_code=504,
-            detail=f"Timeout ao estabelecer conexÃ£o com o {destino}.",
+            detail=f"Timeout ao estabelecer conexão com o {destino}.",
         )
 
     except requests.ReadTimeout as error:
@@ -1136,7 +858,7 @@ def retorna_lista_inea(url: str) -> requests.Response:
         )
 
         logger.error(
-            "[API INEA] Erro de comunicaÃ§Ã£o | "
+            "[API INEA] Erro de comunicação | "
             "destino=%s | endpoint=%s | erro=%s",
             destino,
             endpoint,
@@ -1145,7 +867,7 @@ def retorna_lista_inea(url: str) -> requests.Response:
 
         raise HTTPException(
             status_code=502,
-            detail=f"Erro de comunicaÃ§Ã£o com o {destino}: {str(error)}",
+            detail=f"Erro de comunicação com o {destino}: {str(error)}",
         )
 
     modo = (
@@ -1185,7 +907,7 @@ def retorna_manifesto_inea(
     except requests.RequestException as e:
         raise HTTPException(
             status_code=502,
-            detail=f"Erro de comunicaÃ§Ã£o com o INEA: {str(e)}"
+            detail=f"Erro de comunicação com o INEA: {str(e)}"
         )
 
     if response.status_code != 200:
@@ -1251,21 +973,24 @@ def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = ""
 
     r = s.post(LOGIN_URL, data=payload, headers=headers, timeout=30)
 
-    # tenta interpretar retorno (Ã s vezes vem JSON)
+    # tenta interpretar retorno (às vezes vem JSON)
     try:
         body = r.json()
     except Exception:
         body = r.text[:500]
 
-    # valida cookie bÃ¡sico
+    # valida cookie básico
     js = s.cookies.get("JSESSIONID") or r.cookies.get("JSESSIONID")
     if not js:
         raise RuntimeError(f"Login sem JSESSIONID. status={r.status_code} body={body}")
 
-    # se a API do INEA voltar algo que sinalize erro: vocÃª pode reforÃ§ar aqui
-    # Ex.: {"sucesso":"N"} etc. Como vocÃª nÃ£o colou o payload de retorno do login, mantive leve.
+    # se a API do INEA voltar algo que sinalize erro: você pode reforçar aqui
+    # Ex.: {"sucesso":"N"} etc. Como você não colou o payload de retorno do login, mantive leve.
 
     return s
+
+logger = logging.getLogger("inea")
+logger.setLevel(logging.INFO)
 
 def salvar_manifesto_inea(
     url: str,
@@ -1300,13 +1025,13 @@ def salvar_manifesto_inea(
 
     except (TypeError, ValueError) as error:
         logger.error(
-            "[API INEA] Manifesto invÃ¡lido para serializaÃ§Ã£o | erro=%s",
+            "[API INEA] Manifesto inválido para serialização | erro=%s",
             str(error),
         )
 
         raise HTTPException(
             status_code=400,
-            detail=f"Manifesto invÃ¡lido para serializaÃ§Ã£o JSON: {str(error)}",
+            detail=f"Manifesto inválido para serialização JSON: {str(error)}",
         )
 
     logger.info(
@@ -1319,7 +1044,7 @@ def salvar_manifesto_inea(
     )
 
     # Evita registrar todo o manifesto, pois o objeto pode conter
-    # informaÃ§Ãµes pessoais ou operacionais sensÃ­veis.
+    # informações pessoais ou operacionais sensíveis.
     logger.info(
         "[API INEA] Campos do manifesto | campos=%s",
         sorted(manifesto.keys()),
@@ -1330,6 +1055,29 @@ def salvar_manifesto_inea(
         # WORKAROUND: API Tree -> relay local -> INEA
         # ======================================================
         if INEA_WORKAROUND_ENABLED:
+            if not INEA_RELAY_URL:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas "
+                        "INEA_RELAY_URL não está configurada."
+                    ),
+                )
+
+            if not INEA_RELAY_KEY:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas "
+                        "INEA_RELAY_KEY não está configurada."
+                    ),
+                )
+
+            destino_url = (
+                f"{INEA_RELAY_URL.rstrip('/')}"
+                "/inea/salvarManifesto"
+            )
+
             payload_relay = json.dumps(
                 {
                     "url": url,
@@ -1341,17 +1089,18 @@ def salvar_manifesto_inea(
 
             logger.warning(
                 "[API INEA] Salvamento utilizando workaround | "
-                "endpoint=%s | tamanho_payload=%s",
+                "endpoint=%s | destino=%s | tamanho_payload=%s",
                 endpoint,
+                destino_url,
                 len(payload_relay),
             )
 
-            response_inea, destino_url = executar_post_inea_relay(
-                "/inea/salvarManifesto",
-                safe_to_retry=False,
+            response_inea = requests.post(
+                url=destino_url,
                 headers={
                     "Content-Type": "application/json; charset=utf-8",
                     "Accept": "application/json, text/plain, */*",
+                    "X-Tree-Relay-Key": INEA_RELAY_KEY,
                     "User-Agent": "Tree-ESG-API/1.0",
                     "Connection": "close",
                 },
@@ -1391,7 +1140,7 @@ def salvar_manifesto_inea(
 
     except requests.ConnectTimeout as error:
         logger.error(
-            "[API INEA] Timeout de conexÃ£o ao salvar manifesto | "
+            "[API INEA] Timeout de conexão ao salvar manifesto | "
             "modo=%s | destino=%s | endpoint=%s | erro=%s",
             modo,
             destino_url,
@@ -1402,9 +1151,9 @@ def salvar_manifesto_inea(
         raise HTTPException(
             status_code=504,
             detail=(
-                "Timeout ao estabelecer conexÃ£o com o relay local."
+                "Timeout ao estabelecer conexão com o relay local."
                 if INEA_WORKAROUND_ENABLED
-                else "Timeout ao estabelecer conexÃ£o com a API do INEA."
+                else "Timeout ao estabelecer conexão com a API do INEA."
             ),
         )
 
@@ -1444,7 +1193,7 @@ def salvar_manifesto_inea(
 
     except requests.RequestException as error:
         logger.error(
-            "[API INEA] Erro de comunicaÃ§Ã£o ao salvar manifesto | "
+            "[API INEA] Erro de comunicação ao salvar manifesto | "
             "modo=%s | destino=%s | endpoint=%s | erro=%s",
             modo,
             destino_url,
@@ -1454,7 +1203,7 @@ def salvar_manifesto_inea(
 
         raise HTTPException(
             status_code=502,
-            detail=f"Erro de comunicaÃ§Ã£o ao salvar manifesto: {str(error)}",
+            detail=f"Erro de comunicação ao salvar manifesto: {str(error)}",
         )
 
     conteudo = response_inea.content or b""
@@ -1524,21 +1273,45 @@ def download_manifesto_inea(url: str) -> requests.Response:
         # WORKAROUND: API Tree -> relay local -> INEA
         # ======================================================
         if INEA_WORKAROUND_ENABLED:
-            logger.warning(
-                "[API INEA] Download utilizando workaround | "
-                "codigo_barras=%s",
-                codigo_barras,
+            if not INEA_RELAY_URL:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas "
+                        "INEA_RELAY_URL não está configurada."
+                    ),
+                )
+
+            if not INEA_RELAY_KEY:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Workaround INEA habilitado, mas "
+                        "INEA_RELAY_KEY não está configurada."
+                    ),
+                )
+
+            destino_url = (
+                f"{INEA_RELAY_URL.rstrip('/')}"
+                "/inea/downloadManifesto"
             )
 
-            response_inea, destino_url = executar_post_inea_relay(
-                "/inea/downloadManifesto",
-                safe_to_retry=True,
+            logger.warning(
+                "[API INEA] Download utilizando workaround | "
+                "codigo_barras=%s | destino=%s",
+                codigo_barras,
+                destino_url,
+            )
+
+            response_inea = requests.post(
+                url=destino_url,
                 headers={
                     "Accept": (
                         "application/pdf, "
                         "application/json, */*"
                     ),
                     "Content-Type": "application/json",
+                    "X-Tree-Relay-Key": INEA_RELAY_KEY,
                     "User-Agent": "Tree-ESG-API/1.0",
                     "Connection": "close",
                 },
@@ -1581,7 +1354,7 @@ def download_manifesto_inea(url: str) -> requests.Response:
 
     except requests.ConnectTimeout as error:
         logger.error(
-            "[API INEA] Timeout de conexÃ£o no download | "
+            "[API INEA] Timeout de conexão no download | "
             "modo=%s | destino=%s | codigo_barras=%s | erro=%s",
             modo,
             destino_url,
@@ -1592,9 +1365,9 @@ def download_manifesto_inea(url: str) -> requests.Response:
         raise HTTPException(
             status_code=504,
             detail=(
-                "Timeout ao estabelecer conexÃ£o com o relay local."
+                "Timeout ao estabelecer conexão com o relay local."
                 if INEA_WORKAROUND_ENABLED
-                else "Timeout ao estabelecer conexÃ£o com a API do INEA."
+                else "Timeout ao estabelecer conexão com a API do INEA."
             ),
         )
 
@@ -1634,7 +1407,7 @@ def download_manifesto_inea(url: str) -> requests.Response:
 
     except requests.RequestException as error:
         logger.error(
-            "[API INEA] Erro de comunicaÃ§Ã£o no download | "
+            "[API INEA] Erro de comunicação no download | "
             "modo=%s | destino=%s | codigo_barras=%s | erro=%s",
             modo,
             destino_url,
@@ -1644,7 +1417,7 @@ def download_manifesto_inea(url: str) -> requests.Response:
 
         raise HTTPException(
             status_code=502,
-            detail=f"Erro de comunicaÃ§Ã£o durante o download: {str(error)}",
+            detail=f"Erro de comunicação durante o download: {str(error)}",
         )
 
     conteudo = response_inea.content or b""

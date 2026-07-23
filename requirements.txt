@@ -3,6 +3,7 @@ uvicorn[standard]
 requests
 pydantic
 beautifulsoup4
+firebase-admin
 lxml
 
 
