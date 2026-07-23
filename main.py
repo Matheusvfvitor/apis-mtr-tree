@@ -82,12 +82,14 @@ from services.inea import (
     salvar_manifesto_inea,
     download_manifesto_inea,
     validar_url_download_manifesto_inea,
+    RegistrarIneaRelayRequest,
+    registrar_inea_relay,
 )
 
 from services.sinir import busca_modelos_sinir, ConsultaSinirModeloRequest
 from services.sigor import busca_modelos_sigor, ConsultaSigorModeloRequest
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request, HTTPException
 from fastapi.responses import Response
@@ -96,6 +98,7 @@ from pydantic import BaseModel
 import requests
 import json
 import logging
+
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(name)s | %(message)s')
 
@@ -592,6 +595,21 @@ def cancelar_manifesto_inea_route(
             'Content-Type': content_type,
             'Cache-Control': 'no-store',
         },
+    )
+
+
+# Adicione junto às demais rotas do INEA
+@app.post('/inea/relay/register')
+def inea_registrar_relay(
+    dados: RegistrarIneaRelayRequest,
+    x_tree_relay_key: str | None = Header(
+        default=None,
+        alias='X-Tree-Relay-Key',
+    ),
+):
+    return registrar_inea_relay(
+        dados=dados,
+        x_tree_relay_key=x_tree_relay_key,
     )
 
 
