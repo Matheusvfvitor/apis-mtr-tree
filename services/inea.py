@@ -260,7 +260,103 @@ def executar_post_inea_relay(
         raise
 
 
+def registrar_inea_relay(
+    dados: RegistrarIneaRelayRequest,
+    x_tree_relay_key: Optional[str] = Header(
+        default=None,
+        alias="X-Tree-Relay-Key",
+    ),
+):
+    """Registra uma nova URL somente apÃ³s validar o health check pÃºblico."""
 
+    if not INEA_RELAY_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="INEA_RELAY_KEY nÃ£o configurada.",
+        )
+
+    if not x_tree_relay_key or not secrets.compare_digest(
+        x_tree_relay_key,
+        INEA_RELAY_KEY,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Chave de registro do relay invÃ¡lida.",
+        )
+
+    relay_url = validar_url_publica_relay(dados.url)
+
+    try:
+        health_response = requests.get(
+            f"{relay_url}/health",
+            timeout=(5, 15),
+            allow_redirects=False,
+        )
+        health_response.raise_for_status()
+        health_data = health_response.json()
+    except (requests.RequestException, ValueError) as error:
+        logger.warning(
+            "[API INEA] Registro recusado: health check falhou | erro=%s",
+            str(error),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="O health check pÃºblico do relay falhou.",
+        )
+
+    if (
+        health_data.get("status") != "ok"
+        or health_data.get("service") != "tree-inea-local-relay"
+        or health_data.get("relay_key_configured") is not True
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="O endereÃ§o informado nÃ£o corresponde ao relay INEA esperado.",
+        )
+
+    try:
+        doc_ref = (
+            obter_firestore_client()
+            .collection(INEA_RELAY_COLLECTION)
+            .document(INEA_RELAY_DOCUMENT)
+        )
+        snapshot = doc_ref.get()
+        previous_data = snapshot.to_dict() if snapshot.exists else {}
+        changed = previous_data.get("url") != relay_url
+
+        relay_data = {
+            "url": relay_url,
+            "status": "online",
+            "lastHealthCheck": firestore.SERVER_TIMESTAMP,
+            "source": "cloudflare-quick-tunnel",
+        }
+
+        if changed:
+            relay_data["updatedAt"] = firestore.SERVER_TIMESTAMP
+
+        doc_ref.set(relay_data, merge=True)
+    except Exception as error:
+        logger.exception(
+            "[API INEA] Falha ao registrar URL do relay no Firestore"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="NÃ£o foi possÃ­vel registrar a URL do relay INEA.",
+        )
+
+    atualizar_cache_inea_relay(relay_url)
+
+    logger.info(
+        "[API INEA] Relay registrado | alterado=%s | url=%s",
+        changed,
+        relay_url,
+    )
+
+    return {
+        "status": "ok",
+        "changed": changed,
+        "url": relay_url,
+    }
 
 INEA_BASE_URL = "http://mtr.inea.rj.gov.br/api"
 INEA_HOST = "mtr.inea.rj.gov.br"
