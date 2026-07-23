@@ -53,7 +53,7 @@ _INEA_RELAY_CACHE = {
     "expires_at": 0.0,
 }
 _INEA_RELAY_CACHE_LOCK = threading.Lock()
-_FIRESTORE_CLIENT = None
+_FIRESTORE_CLIENT = os.getenv("FIREBASE_KEY", "")
 
 
 class RegistrarIneaRelayRequest(BaseModel):
