@@ -1319,17 +1319,30 @@ def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = ""
         logger.exception("[INEA] Login POST falhou")
         raise
 
+    resposta_login = {}
+    try:
+        resposta_login = r.json()
+    except ValueError:
+        pass
+
+    resposta_json_sucesso = (
+        isinstance(resposta_login, dict)
+        and str(resposta_login.get("sucesso", "")).lower() == "s"
+    )
     autenticacao_confirmada = (
-        "paginaPrincipal" in str(r.url)
+        resposta_json_sucesso
+        or "paginaPrincipal" in str(r.url)
         or "Usuário Logado" in r.text
         or "Perfil:" in r.text
     )
     logger.info(
         "[INEA] Login POST concluído | status=%s | url_final=%s | "
-        "cookies=%s | autenticacao_confirmada=%s | resposta_bytes=%s",
+        "cookies=%s | resposta_json_sucesso=%s | "
+        "autenticacao_confirmada=%s | resposta_bytes=%s",
         r.status_code,
         r.url,
         sorted(s.cookies.keys()),
+        resposta_json_sucesso,
         autenticacao_confirmada,
         len(r.content or b""),
     )
