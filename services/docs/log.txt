@@ -1,0 +1,5 @@
+📅 2026-08-03 — Importação de modelos MTR do INEA
+🐞 Problema: a API ainda não consultava os modelos cadastrados nem os dados completos de um modelo selecionado.
+🔧 Correção: adicionadas as consultas autenticadas de modelos e de detalhes do modelo, utilizando a sessão e os cookies do INEA.
+✅ Resultado: a API disponibiliza `/inea/busca-modelos` e `/inea/busca-modelo`, incluindo os resíduos associados ao modelo.
+🧪 Validação: login e chamadas reais ao INEA; retorno dos modelos e de um modelo com dois itens de resíduo.

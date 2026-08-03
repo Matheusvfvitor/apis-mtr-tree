@@ -73,6 +73,8 @@ from services.semad import (
 
 from services.inea import (
     ConsultaIneaManifestoRequest,
+    ConsultaIneaModeloRequest,
+    ConsultaIneaModeloDetalheRequest,
     ConsultaListaIneaRequest,
     DownloadManifestoIneaRequest,
     CancelarManifestoIneaRequest,
@@ -84,6 +86,8 @@ from services.inea import (
     validar_url_download_manifesto_inea,
     RegistrarIneaRelayRequest,
     registrar_inea_relay,
+    busca_modelos_inea,
+    busca_dados_modelo_inea,
 )
 
 from services.sinir import busca_modelos_sinir, ConsultaSinirModeloRequest
@@ -611,6 +615,41 @@ def inea_registrar_relay(
         dados=dados,
         x_tree_relay_key=x_tree_relay_key,
     )
+
+
+@app.post('/inea/busca-modelos')
+def inea_buscar_modelos(dados: ConsultaIneaModeloRequest):
+    modelos = busca_modelos_inea(
+        cnpj=dados.cnpj,
+        senha=dados.senha,
+        cpf=dados.cpf,
+        unidade_codigo=dados.unidadeCodigo,
+        tipo=dados.tipoPessoaSociedade,
+    )
+
+    return {
+        'sucesso': True,
+        'orgao': 'INEA',
+        'dados': modelos,
+    }
+
+
+@app.post('/inea/busca-modelo')
+def inea_buscar_modelo(dados: ConsultaIneaModeloDetalheRequest):
+    modelo = busca_dados_modelo_inea(
+        cnpj=dados.cnpj,
+        senha=dados.senha,
+        cpf=dados.cpf,
+        template_codigo=dados.templateCodigo,
+        unidade_codigo=dados.unidadeCodigo,
+        tipo=dados.tipoPessoaSociedade,
+    )
+
+    return {
+        'sucesso': True,
+        'orgao': 'INEA',
+        'dados': modelo,
+    }
 
 
 # =========================

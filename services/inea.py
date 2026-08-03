@@ -1,4 +1,5 @@
 import requests
+from bs4 import BeautifulSoup
 from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import Dict, Tuple, Optional, Union, Any
@@ -400,6 +401,18 @@ class ConsultaIneaManifestoRequest(BaseModel):
     cnpj: str
     unidadeGerador: str
     codigoBarras: str
+
+
+class ConsultaIneaModeloRequest(BaseModel):
+    cnpj: str
+    senha: str
+    cpf: str
+    unidadeCodigo: str = ""
+    tipoPessoaSociedade: str = "J"
+
+
+class ConsultaIneaModeloDetalheRequest(ConsultaIneaModeloRequest):
+    templateCodigo: int
 
 
 class DownloadManifestoIneaRequest(BaseModel):
@@ -1293,6 +1306,153 @@ def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = ""
     # Ex.: {"sucesso":"N"} etc. Como você não colou o payload de retorno do login, mantive leve.
 
     return s
+
+
+def busca_modelos_inea(
+    cnpj: str,
+    senha: str,
+    cpf: str,
+    unidade_codigo: str = "",
+    tipo: str = "J",
+) -> list[dict[str, Any]]:
+    """Autentica no INEA e retorna os modelos disponíveis para o usuário."""
+
+    try:
+        session = login_inea_session(
+            cnpj=cnpj,
+            cpf=cpf,
+            senha=senha,
+            unidade_codigo=unidade_codigo,
+            tipo=tipo,
+        )
+
+        headers = {
+            "Accept": "text/html, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Referer": f"{INEA_BASE}/ControllerServlet?acao=cadastroModeloMtr",
+            "X-Requested-With": "XMLHttpRequest",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/142.0.0.0 Safari/537.36"
+            ),
+        }
+        response = session.post(
+            LOGIN_URL,
+            data={
+                "acao": "pesquisaTemplate",
+                "tela": "cadastroModeloMtr",
+            },
+            headers=headers,
+            timeout=30,
+        )
+        response.raise_for_status()
+    except requests.RequestException as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação com o INEA ao buscar modelos: {str(error)}",
+        ) from error
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    tabela = soup.select_one("#example7")
+    if tabela is None:
+        raise HTTPException(
+            status_code=502,
+            detail="Resposta inesperada do INEA ao buscar modelos.",
+        )
+
+    modelos = []
+    for linha in tabela.select("tbody tr"):
+        celulas = [celula.get_text(" ", strip=True) for celula in linha.select("td")]
+        if len(celulas) < 4 or not celulas[0]:
+            continue
+
+        onclick = linha.select_one("td[onclick]")
+        template_codigo = celulas[0]
+        descricao = celulas[1]
+        if onclick:
+            match = re.search(
+                r"templateSelecionado\('([^']+)'\s*,\s*'([^']*)'\)",
+                onclick.get("onclick", ""),
+            )
+            if match:
+                template_codigo, descricao = match.groups()
+
+        modelos.append(
+            {
+                "templateCodigo": template_codigo,
+                "descricao": descricao,
+                "transportador": celulas[2],
+                "destinador": celulas[3],
+            }
+        )
+
+    return modelos
+
+
+def busca_dados_modelo_inea(
+    cnpj: str,
+    senha: str,
+    cpf: str,
+    template_codigo: int,
+    unidade_codigo: str = "",
+    tipo: str = "J",
+) -> dict[str, Any]:
+    """Autentica no INEA e retorna os dados completos de um modelo."""
+
+    try:
+        session = login_inea_session(
+            cnpj=cnpj,
+            cpf=cpf,
+            senha=senha,
+            unidade_codigo=unidade_codigo,
+            tipo=tipo,
+        )
+
+        headers = {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Referer": f"{INEA_BASE}/ControllerServlet?acao=cadastroModeloMtr",
+            "X-Requested-With": "XMLHttpRequest",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/142.0.0.0 Safari/537.36"
+            ),
+        }
+        response = session.post(
+            LOGIN_URL,
+            data={
+                "acao": "buscaTemplate",
+                "codTemplate": str(template_codigo),
+            },
+            headers=headers,
+            timeout=30,
+        )
+        response.raise_for_status()
+        dados_modelo = response.json()
+    except requests.RequestException as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação com o INEA ao buscar o modelo: {str(error)}",
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Resposta inesperada do INEA ao buscar o modelo.",
+        ) from error
+
+    lista_item = dados_modelo.get("listaItem", [])
+    if isinstance(lista_item, str):
+        try:
+            dados_modelo["listaItem"] = json.loads(lista_item)
+        except json.JSONDecodeError as error:
+            raise HTTPException(
+                status_code=502,
+                detail="O INEA retornou uma lista de resíduos inválida para o modelo.",
+            ) from error
+
+    return dados_modelo
 
 def salvar_manifesto_inea(
     url: str,
