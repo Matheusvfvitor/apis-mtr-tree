@@ -1256,11 +1256,26 @@ def sse_event(event: str, data: Any) -> str:
 # ----------------------------
 # Login (requests/session)
 # ----------------------------
+def mascarar_identificador_log(valor: str) -> str:
+    valor = str(valor or "")
+    if len(valor) <= 4:
+        return "***"
+    return f"***{valor[-4:]}"
+
+
 def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = "", tipo: str = "J") -> requests.Session:
     """
     Faz login e devolve requests.Session autenticada (com cookies).
     """
     s = requests.Session()
+
+    logger.info(
+        "[INEA] Login iniciado | cnpj=%s | cpf=%s | unidade=%s | tipo=%s",
+        mascarar_identificador_log(cnpj),
+        mascarar_identificador_log(cpf),
+        unidade_codigo or "(vazia)",
+        tipo,
+    )
 
     headers = {
         "Accept": "*/*",
@@ -1278,7 +1293,16 @@ def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = ""
     }
 
     # GET inicial (seta JSESSIONID muitas vezes)
-    s.get(f"{INEA_BASE}/", headers=headers, timeout=30)
+    try:
+        resposta_inicial = s.get(f"{INEA_BASE}/", headers=headers, timeout=30)
+    except requests.RequestException:
+        logger.exception("[INEA] Login GET inicial falhou")
+        raise
+    logger.info(
+        "[INEA] Login GET inicial concluído | status=%s | cookies=%s",
+        resposta_inicial.status_code,
+        sorted(s.cookies.keys()),
+    )
 
     payload = {
         "acao": "autenticaUsuario",
@@ -1289,18 +1313,55 @@ def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = ""
         "tipoPessoaSociedade": tipo,
     }
 
-    r = s.post(LOGIN_URL, data=payload, headers=headers, timeout=30)
-
-    # tenta interpretar retorno (às vezes vem JSON)
     try:
-        body = r.json()
-    except Exception:
-        body = r.text[:500]
+        r = s.post(LOGIN_URL, data=payload, headers=headers, timeout=30)
+    except requests.RequestException:
+        logger.exception("[INEA] Login POST falhou")
+        raise
+
+    autenticacao_confirmada = (
+        "paginaPrincipal" in str(r.url)
+        or "Usuário Logado" in r.text
+        or "Perfil:" in r.text
+    )
+    logger.info(
+        "[INEA] Login POST concluído | status=%s | url_final=%s | "
+        "cookies=%s | autenticacao_confirmada=%s | resposta_bytes=%s",
+        r.status_code,
+        r.url,
+        sorted(s.cookies.keys()),
+        autenticacao_confirmada,
+        len(r.content or b""),
+    )
 
     # valida cookie básico
     js = s.cookies.get("JSESSIONID") or r.cookies.get("JSESSIONID")
     if not js:
-        raise RuntimeError(f"Login sem JSESSIONID. status={r.status_code} body={body}")
+        logger.error(
+            "[INEA] Login falhou: JSESSIONID não recebido | status=%s",
+            r.status_code,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Login no INEA não retornou a sessão esperada.",
+        )
+
+    if not autenticacao_confirmada:
+        logger.warning(
+            "[INEA] Login não confirmado | status=%s | url_final=%s",
+            r.status_code,
+            r.url,
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Falha na autenticação do INEA.",
+        )
+
+    logger.info(
+        "[INEA] Login autenticado com sucesso | cnpj=%s | cpf=%s",
+        mascarar_identificador_log(cnpj),
+        mascarar_identificador_log(cpf),
+    )
 
     # se a API do INEA voltar algo que sinalize erro: você pode reforçar aqui
     # Ex.: {"sucesso":"N"} etc. Como você não colou o payload de retorno do login, mantive leve.
@@ -1316,6 +1377,12 @@ def busca_modelos_inea(
     tipo: str = "J",
 ) -> list[dict[str, Any]]:
     """Autentica no INEA e retorna os modelos disponíveis para o usuário."""
+
+    logger.info(
+        "[INEA] Rota busca-modelos: iniciando consulta | cnpj=%s | cpf=%s",
+        mascarar_identificador_log(cnpj),
+        mascarar_identificador_log(cpf),
+    )
 
     try:
         session = login_inea_session(
@@ -1346,8 +1413,16 @@ def busca_modelos_inea(
             headers=headers,
             timeout=30,
         )
+        logger.info(
+            "[INEA] Rota busca-modelos: resposta recebida | status=%s | "
+            "url=%s | resposta_bytes=%s",
+            response.status_code,
+            response.url,
+            len(response.content or b""),
+        )
         response.raise_for_status()
     except requests.RequestException as error:
+        logger.exception("[INEA] Rota busca-modelos: erro na comunicação com o INEA")
         raise HTTPException(
             status_code=502,
             detail=f"Erro de comunicação com o INEA ao buscar modelos: {str(error)}",
@@ -1356,6 +1431,9 @@ def busca_modelos_inea(
     soup = BeautifulSoup(response.text, "html.parser")
     tabela = soup.select_one("#example7")
     if tabela is None:
+        logger.error(
+            "[INEA] Rota busca-modelos: tabela de modelos não encontrada na resposta"
+        )
         raise HTTPException(
             status_code=502,
             detail="Resposta inesperada do INEA ao buscar modelos.",
@@ -1387,6 +1465,10 @@ def busca_modelos_inea(
             }
         )
 
+    logger.info(
+        "[INEA] Rota busca-modelos: consulta concluída | quantidade_modelos=%s",
+        len(modelos),
+    )
     return modelos
 
 
@@ -1399,6 +1481,14 @@ def busca_dados_modelo_inea(
     tipo: str = "J",
 ) -> dict[str, Any]:
     """Autentica no INEA e retorna os dados completos de um modelo."""
+
+    logger.info(
+        "[INEA] Rota busca-modelo: iniciando consulta | template_codigo=%s | "
+        "cnpj=%s | cpf=%s",
+        template_codigo,
+        mascarar_identificador_log(cnpj),
+        mascarar_identificador_log(cpf),
+    )
 
     try:
         session = login_inea_session(
@@ -1429,14 +1519,31 @@ def busca_dados_modelo_inea(
             headers=headers,
             timeout=30,
         )
+        logger.info(
+            "[INEA] Rota busca-modelo: resposta recebida | template_codigo=%s | "
+            "status=%s | url=%s | resposta_bytes=%s",
+            template_codigo,
+            response.status_code,
+            response.url,
+            len(response.content or b""),
+        )
         response.raise_for_status()
         dados_modelo = response.json()
     except requests.RequestException as error:
+        logger.exception(
+            "[INEA] Rota busca-modelo: erro na comunicação com o INEA | "
+            "template_codigo=%s",
+            template_codigo,
+        )
         raise HTTPException(
             status_code=502,
             detail=f"Erro de comunicação com o INEA ao buscar o modelo: {str(error)}",
         ) from error
     except ValueError as error:
+        logger.exception(
+            "[INEA] Rota busca-modelo: resposta JSON inválida | template_codigo=%s",
+            template_codigo,
+        )
         raise HTTPException(
             status_code=502,
             detail="Resposta inesperada do INEA ao buscar o modelo.",
@@ -1452,6 +1559,14 @@ def busca_dados_modelo_inea(
                 detail="O INEA retornou uma lista de resíduos inválida para o modelo.",
             ) from error
 
+    logger.info(
+        "[INEA] Rota busca-modelo: consulta concluída | template_codigo=%s | "
+        "itens_residuo=%s",
+        template_codigo,
+        len(dados_modelo.get("listaItem", []))
+        if isinstance(dados_modelo.get("listaItem"), list)
+        else "não informado",
+    )
     return dados_modelo
 
 def salvar_manifesto_inea(
