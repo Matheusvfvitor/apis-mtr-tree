@@ -73,6 +73,7 @@ from services.semad import (
 
 from services.inea import (
     ConsultaIneaManifestoRequest,
+    ConsultaIneaLoginRequest,
     ConsultaIneaModeloRequest,
     ConsultaIneaModeloDetalheRequest,
     ConsultaListaIneaRequest,
@@ -88,6 +89,7 @@ from services.inea import (
     registrar_inea_relay,
     busca_modelos_inea,
     busca_dados_modelo_inea,
+    login_inea_status,
 )
 
 from services.sinir import busca_modelos_sinir, ConsultaSinirModeloRequest
@@ -615,6 +617,45 @@ def inea_registrar_relay(
         dados=dados,
         x_tree_relay_key=x_tree_relay_key,
     )
+
+
+@app.post('/inea/login')
+def inea_login(dados: ConsultaIneaLoginRequest):
+    logger_inea = logging.getLogger('inea')
+    logger_inea.info(
+        '[INEA] Rota login: iniciando autenticação | unidade=%s | tipo=%s',
+        dados.unidadeCodigo or '(vazia)',
+        dados.tipoPessoaSociedade,
+    )
+
+    try:
+        resultado_login = login_inea_status(
+            cnpj=dados.cnpj,
+            senha=dados.senha,
+            cpf=dados.cpf,
+            unidade_codigo=dados.unidadeCodigo,
+            tipo=dados.tipoPessoaSociedade,
+        )
+    except requests.Timeout as error:
+        logger_inea.exception('[INEA] Rota login: timeout ao conectar ao INEA')
+        raise HTTPException(
+            status_code=504,
+            detail='Timeout ao conectar ao INEA durante o login.',
+        ) from error
+    except requests.RequestException as error:
+        logger_inea.exception('[INEA] Rota login: erro de comunicação com o INEA')
+        raise HTTPException(
+            status_code=502,
+            detail='Erro de comunicação com o INEA durante o login.',
+        ) from error
+
+    logger_inea.info(
+        '[INEA] Rota login: autenticação concluída | sessao_criada=%s | cookies=%s',
+        resultado_login.get('sessaoCriada'),
+        resultado_login.get('cookies'),
+    )
+
+    return resultado_login
 
 
 @app.post('/inea/busca-modelos')
