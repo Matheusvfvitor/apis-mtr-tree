@@ -1390,6 +1390,95 @@ def login_inea_session(cnpj: str, cpf: str, senha: str, unidade_codigo: str = ""
     return s
 
 
+def login_inea_relay(
+    cnpj: str,
+    cpf: str,
+    senha: str,
+    unidade_codigo: str = "",
+    tipo: str = "J",
+) -> dict[str, Any]:
+    """Autentica no INEA por meio do relay local."""
+
+    response, destino_url = executar_post_inea_relay(
+        "/inea/login",
+        safe_to_retry=True,
+        json={
+            "cnpj": cnpj,
+            "cpf": cpf,
+            "senha": senha,
+            "unidadeCodigo": unidade_codigo or "",
+            "tipoPessoaSociedade": tipo,
+        },
+        timeout=(15, 90),
+        allow_redirects=False,
+    )
+
+    logger.info(
+        "[INEA] Login via relay concluído | status=%s | destino=%s | resposta_bytes=%s",
+        response.status_code,
+        destino_url,
+        len(response.content or b""),
+    )
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail="O relay não conseguiu autenticar no INEA.",
+        )
+
+    try:
+        dados_login = response.json()
+    except ValueError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Resposta inválida do relay no login do INEA.",
+        ) from error
+
+    if dados_login.get("autenticado") is not True:
+        raise HTTPException(
+            status_code=401,
+            detail="Falha na autenticação do INEA via relay.",
+        )
+
+    return dados_login
+
+
+def login_inea_status(
+    cnpj: str,
+    cpf: str,
+    senha: str,
+    unidade_codigo: str = "",
+    tipo: str = "J",
+) -> dict[str, Any]:
+    """Executa o login usando o caminho configurado e retorna seu status."""
+
+    if INEA_WORKAROUND_ENABLED:
+        return login_inea_relay(
+            cnpj=cnpj,
+            cpf=cpf,
+            senha=senha,
+            unidade_codigo=unidade_codigo,
+            tipo=tipo,
+        )
+
+    session = login_inea_session(
+        cnpj=cnpj,
+        senha=senha,
+        cpf=cpf,
+        unidade_codigo=unidade_codigo,
+        tipo=tipo,
+    )
+
+    cookies = sorted(session.cookies.keys())
+    return {
+        "sucesso": True,
+        "orgao": "INEA",
+        "autenticado": True,
+        "sessaoCriada": bool(session.cookies.get("JSESSIONID")),
+        "cookies": cookies,
+    }
+
+
 def busca_modelos_inea(
     cnpj: str,
     senha: str,
@@ -1406,42 +1495,62 @@ def busca_modelos_inea(
     )
 
     try:
-        session = login_inea_session(
-            cnpj=cnpj,
-            cpf=cpf,
-            senha=senha,
-            unidade_codigo=unidade_codigo,
-            tipo=tipo,
-        )
+        if INEA_WORKAROUND_ENABLED:
+            response, destino_url = executar_post_inea_relay(
+                "/inea/buscaModelos",
+                safe_to_retry=True,
+                json={
+                    "cnpj": cnpj,
+                    "cpf": cpf,
+                    "senha": senha,
+                    "unidadeCodigo": unidade_codigo or "",
+                    "tipoPessoaSociedade": tipo,
+                },
+                timeout=(15, 120),
+                allow_redirects=False,
+            )
+        else:
+            session = login_inea_session(
+                cnpj=cnpj,
+                cpf=cpf,
+                senha=senha,
+                unidade_codigo=unidade_codigo,
+                tipo=tipo,
+            )
 
-        headers = {
-            "Accept": "text/html, */*; q=0.01",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "Referer": f"{INEA_BASE}/ControllerServlet?acao=cadastroModeloMtr",
-            "X-Requested-With": "XMLHttpRequest",
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/142.0.0.0 Safari/537.36"
-            ),
-        }
-        response = session.post(
-            LOGIN_URL,
-            data={
-                "acao": "pesquisaTemplate",
-                "tela": "cadastroModeloMtr",
-            },
-            headers=headers,
-            timeout=30,
-        )
+            headers = {
+                "Accept": "text/html, */*; q=0.01",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Referer": f"{INEA_BASE}/ControllerServlet?acao=cadastroModeloMtr",
+                "X-Requested-With": "XMLHttpRequest",
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/142.0.0.0 Safari/537.36"
+                ),
+            }
+            response = session.post(
+                LOGIN_URL,
+                data={
+                    "acao": "pesquisaTemplate",
+                    "tela": "cadastroModeloMtr",
+                },
+                headers=headers,
+                timeout=30,
+            )
+            destino_url = response.url
         logger.info(
             "[INEA] Rota busca-modelos: resposta recebida | status=%s | "
             "url=%s | resposta_bytes=%s",
             response.status_code,
-            response.url,
+            destino_url,
             len(response.content or b""),
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail="Erro ao buscar modelos no INEA.",
+            )
     except requests.RequestException as error:
         logger.exception("[INEA] Rota busca-modelos: erro na comunicação com o INEA")
         raise HTTPException(
@@ -1512,43 +1621,64 @@ def busca_dados_modelo_inea(
     )
 
     try:
-        session = login_inea_session(
-            cnpj=cnpj,
-            cpf=cpf,
-            senha=senha,
-            unidade_codigo=unidade_codigo,
-            tipo=tipo,
-        )
+        if INEA_WORKAROUND_ENABLED:
+            response, destino_url = executar_post_inea_relay(
+                "/inea/buscaModelo",
+                safe_to_retry=True,
+                json={
+                    "cnpj": cnpj,
+                    "cpf": cpf,
+                    "senha": senha,
+                    "unidadeCodigo": unidade_codigo or "",
+                    "tipoPessoaSociedade": tipo,
+                    "templateCodigo": template_codigo,
+                },
+                timeout=(15, 120),
+                allow_redirects=False,
+            )
+        else:
+            session = login_inea_session(
+                cnpj=cnpj,
+                cpf=cpf,
+                senha=senha,
+                unidade_codigo=unidade_codigo,
+                tipo=tipo,
+            )
 
-        headers = {
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "Referer": f"{INEA_BASE}/ControllerServlet?acao=cadastroModeloMtr",
-            "X-Requested-With": "XMLHttpRequest",
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/142.0.0.0 Safari/537.36"
-            ),
-        }
-        response = session.post(
-            LOGIN_URL,
-            data={
-                "acao": "buscaTemplate",
-                "codTemplate": str(template_codigo),
-            },
-            headers=headers,
-            timeout=30,
-        )
+            headers = {
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Referer": f"{INEA_BASE}/ControllerServlet?acao=cadastroModeloMtr",
+                "X-Requested-With": "XMLHttpRequest",
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/142.0.0.0 Safari/537.36"
+                ),
+            }
+            response = session.post(
+                LOGIN_URL,
+                data={
+                    "acao": "buscaTemplate",
+                    "codTemplate": str(template_codigo),
+                },
+                headers=headers,
+                timeout=30,
+            )
+            destino_url = response.url
         logger.info(
             "[INEA] Rota busca-modelo: resposta recebida | template_codigo=%s | "
             "status=%s | url=%s | resposta_bytes=%s",
             template_codigo,
             response.status_code,
-            response.url,
+            destino_url,
             len(response.content or b""),
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail="Erro ao buscar modelo no INEA.",
+            )
         dados_modelo = response.json()
     except requests.RequestException as error:
         logger.exception(

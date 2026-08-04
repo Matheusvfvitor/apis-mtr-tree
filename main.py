@@ -89,7 +89,7 @@ from services.inea import (
     registrar_inea_relay,
     busca_modelos_inea,
     busca_dados_modelo_inea,
-    login_inea_session,
+    login_inea_status,
 )
 
 from services.sinir import busca_modelos_sinir, ConsultaSinirModeloRequest
@@ -629,7 +629,7 @@ def inea_login(dados: ConsultaIneaLoginRequest):
     )
 
     try:
-        session = login_inea_session(
+        resultado_login = login_inea_status(
             cnpj=dados.cnpj,
             senha=dados.senha,
             cpf=dados.cpf,
@@ -649,21 +649,13 @@ def inea_login(dados: ConsultaIneaLoginRequest):
             detail='Erro de comunicação com o INEA durante o login.',
         ) from error
 
-    cookies = sorted(session.cookies.keys())
-    sessao_criada = bool(session.cookies.get('JSESSIONID'))
     logger_inea.info(
         '[INEA] Rota login: autenticação concluída | sessao_criada=%s | cookies=%s',
-        sessao_criada,
-        cookies,
+        resultado_login.get('sessaoCriada'),
+        resultado_login.get('cookies'),
     )
 
-    return {
-        'sucesso': True,
-        'orgao': 'INEA',
-        'autenticado': True,
-        'sessaoCriada': sessao_criada,
-        'cookies': cookies,
-    }
+    return resultado_login
 
 
 @app.post('/inea/busca-modelos')
