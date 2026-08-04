@@ -403,6 +403,14 @@ class ConsultaIneaManifestoRequest(BaseModel):
     codigoBarras: str
 
 
+class ConsultaIneaLoginRequest(BaseModel):
+    cnpj: str
+    senha: str
+    cpf: str
+    unidadeCodigo: str = ""
+    tipoPessoaSociedade: str = "J"
+
+
 class ConsultaIneaModeloRequest(BaseModel):
     cnpj: str
     senha: str
