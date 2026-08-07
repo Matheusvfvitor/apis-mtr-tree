@@ -2281,8 +2281,9 @@ def download_cdf_inea(url: str) -> requests.Response:
                 cdf,
             )
 
+            # O relay local expõe um único downloader de PDFs do INEA.
             response_inea, destino_url = executar_post_inea_relay(
-                "/inea/downloadCdf",
+                "/inea/downloadManifesto",
                 safe_to_retry=True,
                 headers={
                     "Accept": "application/pdf, application/json, */*",
