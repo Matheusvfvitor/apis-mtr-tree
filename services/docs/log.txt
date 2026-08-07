@@ -1,3 +1,9 @@
+📅 2026-08-06 — Download de CDF do INEA pelo relay
+🐞 Problema: a API não possuía uma rota para encaminhar o download de CDF ao relay local do INEA.
+🔧 Correção: adicionadas validação restrita da URL, comunicação com `/inea/downloadCdf` no relay e resposta PDF pela rota pública `/inea/downloadCdf`.
+✅ Resultado: o tree-apis pode encaminhar downloads de CDF sem depender da Cloud Function legada.
+🧪 Validação: compilação Python, regras de URL, respostas PDF e de erro simuladas e conferência do diff.
+
 📅 2026-08-03 — Importação de modelos MTR do INEA
 🐞 Problema: a API ainda não consultava os modelos cadastrados nem os dados completos de um modelo selecionado.
 🔧 Correção: adicionadas as consultas autenticadas de modelos e de detalhes do modelo, utilizando a sessão e os cookies do INEA.
