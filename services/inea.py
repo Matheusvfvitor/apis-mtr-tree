@@ -426,6 +426,10 @@ class ConsultaIneaModeloDetalheRequest(ConsultaIneaModeloRequest):
 class DownloadManifestoIneaRequest(BaseModel):
     url: str
 
+
+class DownloadCdfIneaRequest(BaseModel):
+    url: str
+
 # =========================
 # Consulta LISTA INEA
 # =========================
@@ -714,6 +718,132 @@ def validar_url_download_manifesto_inea(
     )
 
     return codigo_barras, url_mascarada
+
+
+def validar_url_download_cdf_inea(
+    url: str,
+) -> tuple[str, str]:
+    """
+    Valida exclusivamente a URL de download de CDF do INEA.
+
+    Estrutura esperada:
+    /api/buscaPdfCdf/{cpf}/{senha}/{cnpj}/{unidade}/{cdf}
+    """
+
+    try:
+        parsed_url = urlparse(url)
+        parsed_port = parsed_url.port
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL ou porta inválida: {str(error)}",
+        )
+
+    if parsed_url.scheme.lower() != "https":
+        raise HTTPException(
+            status_code=400,
+            detail="A URL do INEA deve utilizar HTTPS.",
+        )
+
+    hostname = (parsed_url.hostname or "").strip().lower()
+
+    if hostname not in INEA_ALLOWED_HOSTS:
+        logger.warning(
+            "[API INEA] Host recusado no download de CDF | "
+            "host_recebido=%s | hosts_permitidos=%s",
+            hostname,
+            sorted(INEA_ALLOWED_HOSTS),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Host da API INEA não autorizado.",
+        )
+
+    if parsed_port not in (None, 443):
+        raise HTTPException(
+            status_code=403,
+            detail="Porta da API INEA não autorizada.",
+        )
+
+    if parsed_url.username or parsed_url.password:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL não pode conter credenciais no host.",
+        )
+
+    if parsed_url.query or parsed_url.fragment:
+        raise HTTPException(
+            status_code=400,
+            detail="A URL não pode conter query string ou fragmento.",
+        )
+
+    partes = [
+        parte
+        for parte in parsed_url.path.split("/")
+        if parte
+    ]
+
+    if len(partes) != 7:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Estrutura inválida. Esperado: "
+                "/api/buscaPdfCdf/"
+                "{cpf}/{senha}/{cnpj}/{unidade}/{cdf}"
+            ),
+        )
+
+    if partes[0] != "api":
+        raise HTTPException(
+            status_code=400,
+            detail="Prefixo da API INEA inválido.",
+        )
+
+    if partes[1] != "buscaPdfCdf":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Endpoint não autorizado: {partes[1]}",
+        )
+
+    cpf = partes[2]
+    cnpj = partes[4]
+    unidade = partes[5]
+    cdf = partes[6]
+
+    if not cpf.isdigit() or len(cpf) != 11:
+        raise HTTPException(
+            status_code=400,
+            detail="CPF de acesso inválido.",
+        )
+
+    if not cnpj.isdigit() or len(cnpj) not in (11, 14):
+        raise HTTPException(
+            status_code=400,
+            detail="CNPJ ou CPF da unidade inválido.",
+        )
+
+    if not unidade.isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail="Código da unidade inválido.",
+        )
+
+    if not cdf.isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail="Código do CDF inválido.",
+        )
+
+    partes_mascaradas = partes.copy()
+    partes_mascaradas[2] = "***CPF***"
+    partes_mascaradas[3] = "***SENHA***"
+
+    url_mascarada = (
+        f"https://{hostname}/"
+        f"{'/'.join(partes_mascaradas)}"
+    )
+
+    return cdf, url_mascarada
 
 def validar_url_lista_inea(url: str) -> tuple[str, str]:
     """
@@ -2119,6 +2249,153 @@ def download_manifesto_inea(url: str) -> requests.Response:
         modo,
         destino_url,
         codigo_barras,
+        response_inea.status_code,
+        content_type,
+        is_pdf,
+        len(conteudo),
+    )
+
+    return response_inea
+
+
+def download_cdf_inea(url: str) -> requests.Response:
+    """Faz o download de um CDF do INEA diretamente ou pelo relay local."""
+
+    cdf, url_mascarada = validar_url_download_cdf_inea(url)
+    modo = "relay-local" if INEA_WORKAROUND_ENABLED else "direto"
+    destino_url = ""
+    destino_log = ""
+
+    logger.info(
+        "[API INEA] Download de CDF iniciado | "
+        "modo=%s | cdf=%s | url=%s",
+        modo,
+        cdf,
+        url_mascarada,
+    )
+
+    try:
+        if INEA_WORKAROUND_ENABLED:
+            logger.warning(
+                "[API INEA] Download de CDF utilizando workaround | cdf=%s",
+                cdf,
+            )
+
+            response_inea, destino_url = executar_post_inea_relay(
+                "/inea/downloadCdf",
+                safe_to_retry=True,
+                headers={
+                    "Accept": "application/pdf, application/json, */*",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Tree-ESG-API/1.0",
+                    "Connection": "close",
+                },
+                json={"url": url},
+                timeout=(20, 120),
+                allow_redirects=True,
+            )
+            destino_log = destino_url
+        else:
+            destino_url = url
+            destino_log = url_mascarada
+
+            logger.info(
+                "[API INEA] Download de CDF direto | cdf=%s | url=%s",
+                cdf,
+                url_mascarada,
+            )
+
+            response_inea = requests.post(
+                url=destino_url,
+                headers={
+                    "Accept": "application/pdf, application/octet-stream, */*",
+                    "User-Agent": "Tree-ESG-API/1.0",
+                    "Connection": "close",
+                },
+                timeout=(15, 60),
+                allow_redirects=True,
+            )
+
+    except HTTPException:
+        raise
+    except requests.ConnectTimeout as error:
+        logger.error(
+            "[API INEA] Timeout de conexão no download de CDF | "
+            "modo=%s | destino=%s | cdf=%s | erro=%s",
+            modo,
+            destino_log,
+            cdf,
+            str(error),
+        )
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "Timeout ao estabelecer conexão com o relay local."
+                if INEA_WORKAROUND_ENABLED
+                else "Timeout ao estabelecer conexão com a API do INEA."
+            ),
+        )
+    except requests.ReadTimeout as error:
+        logger.error(
+            "[API INEA] Timeout de resposta no download de CDF | "
+            "modo=%s | destino=%s | cdf=%s | erro=%s",
+            modo,
+            destino_log,
+            cdf,
+            str(error),
+        )
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "O relay demorou demais para responder."
+                if INEA_WORKAROUND_ENABLED
+                else "A API do INEA demorou demais para responder."
+            ),
+        )
+    except requests.SSLError as error:
+        logger.error(
+            "[API INEA] Erro SSL no download de CDF | "
+            "modo=%s | destino=%s | cdf=%s | erro=%s",
+            modo,
+            destino_log,
+            cdf,
+            str(error),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro SSL durante o download do CDF: {str(error)}",
+        )
+    except requests.RequestException as error:
+        logger.error(
+            "[API INEA] Erro de comunicação no download de CDF | "
+            "modo=%s | destino=%s | cdf=%s | erro=%s",
+            modo,
+            destino_log,
+            cdf,
+            str(error),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação durante o download do CDF: {str(error)}",
+        )
+
+    conteudo = response_inea.content or b""
+    content_type = response_inea.headers.get(
+        "Content-Type",
+        "application/octet-stream",
+    )
+    is_pdf = (
+        "application/pdf" in content_type.lower()
+        or conteudo.startswith(b"%PDF")
+    )
+
+    logger.info(
+        "[API INEA] Download de CDF finalizado | "
+        "modo=%s | destino=%s | cdf=%s | status=%s | "
+        "content_type=%s | is_pdf=%s | tamanho=%s",
+        modo,
+        destino_log,
+        cdf,
         response_inea.status_code,
         content_type,
         is_pdf,

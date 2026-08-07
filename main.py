@@ -78,13 +78,16 @@ from services.inea import (
     ConsultaIneaModeloDetalheRequest,
     ConsultaListaIneaRequest,
     DownloadManifestoIneaRequest,
+    DownloadCdfIneaRequest,
     CancelarManifestoIneaRequest,
     cancelar_manifesto_inea,
     retorna_lista_inea,
     retorna_manifesto_inea,
     salvar_manifesto_inea,
     download_manifesto_inea,
+    download_cdf_inea,
     validar_url_download_manifesto_inea,
+    validar_url_download_cdf_inea,
     RegistrarIneaRelayRequest,
     registrar_inea_relay,
     busca_modelos_inea,
@@ -503,6 +506,42 @@ def download_manifesto(
             media_type='application/pdf',
             headers={
                 'Content-Disposition': (f'attachment; filename="MTR-{codigo_barras}.pdf"'),
+                'Cache-Control': 'no-store',
+                'Content-Length': str(len(conteudo)),
+            },
+        )
+
+    return Response(
+        content=conteudo,
+        status_code=response_inea.status_code,
+        headers={
+            'Content-Type': content_type,
+            'Cache-Control': 'no-store',
+        },
+    )
+
+
+@app.post('/inea/downloadCdf')
+def download_cdf(
+    dados: DownloadCdfIneaRequest,
+):
+    cdf, _ = validar_url_download_cdf_inea(dados.url)
+    response_inea = download_cdf_inea(dados.url)
+
+    conteudo = response_inea.content or b''
+    content_type = response_inea.headers.get(
+        'Content-Type',
+        'application/octet-stream',
+    )
+    is_pdf = 'application/pdf' in content_type.lower() or conteudo.startswith(b'%PDF')
+
+    if response_inea.status_code == 200 and is_pdf:
+        return Response(
+            content=conteudo,
+            status_code=200,
+            media_type='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="CDF-{cdf}.pdf"',
                 'Cache-Control': 'no-store',
                 'Content-Length': str(len(conteudo)),
             },
