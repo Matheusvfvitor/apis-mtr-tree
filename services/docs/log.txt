@@ -1,3 +1,9 @@
+📅 2026-08-07 — Rota independente do relay para download de CDF do INEA
+🐞 Problema: o download de CDF era encaminhado à rota de manifesto, que rejeitava corretamente o endpoint `buscaPdfCdf`.
+🔧 Correção: o encaminhamento de CDF passou a utilizar a rota dedicada `/inea/downloadCdf` do relay local.
+✅ Resultado: manifestos e CDFs mantêm validações independentes, e o CDF pode retornar como PDF pela API pública.
+🧪 Validação: compilação Python, validações isoladas da URL, respostas simuladas do relay e conferência do contrato da rota.
+
 📅 2026-08-06 — Download de CDF do INEA pelo relay
 🐞 Problema: a API não possuía uma rota para encaminhar o download de CDF ao relay local do INEA.
 🔧 Correção: adicionadas validação restrita da URL e resposta pela rota pública `/inea/downloadCdf`, utilizando internamente o downloader genérico `/inea/downloadManifesto` disponível no relay.
