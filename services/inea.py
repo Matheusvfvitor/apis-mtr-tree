@@ -1732,6 +1732,177 @@ def busca_modelos_inea(
     return modelos
 
 
+INEA_PARCEIRO_CNPJ = "39.228.967/0001-60"
+INEA_PARCEIRO_CPF = "132.800.586-00"
+INEA_PARCEIRO_SENHA = "T2m@2024"
+INEA_PARCEIRO_UNIDADE_CODIGO = ""
+INEA_PARCEIRO_TIPO_PESSOA_SOCIEDADE = "J"
+
+
+def busca_parceiro_inea(
+    cnpj_parceiro: str,
+    tipo_pessoa: str,
+    codigo_unidade_parceiro: str = "",
+    armazenador: bool = False,
+) -> dict[str, Any]:
+    """Consulta um parceiro (transportador/destino/armazenador) do INEA por
+    CNPJ, autenticando com a conta de serviço fixa da Tree.
+    """
+
+    cnpj = INEA_PARCEIRO_CNPJ
+    senha = INEA_PARCEIRO_SENHA
+    cpf = INEA_PARCEIRO_CPF
+    unidade_codigo = INEA_PARCEIRO_UNIDADE_CODIGO
+    tipo = INEA_PARCEIRO_TIPO_PESSOA_SOCIEDADE
+
+    logger.info(
+        "[INEA] Rota busca-parceiro: iniciando consulta | tipo_pessoa=%s | "
+        "cnpj_parceiro=%s | cnpj=%s | cpf=%s",
+        tipo_pessoa,
+        mascarar_identificador_log(cnpj_parceiro),
+        mascarar_identificador_log(cnpj),
+        mascarar_identificador_log(cpf),
+    )
+
+    form_fields = [
+        ("acao", "buscaPessoaPorTipo"),
+        ("cnpj", cnpj_parceiro),
+        ("tipoPessoa", tipo_pessoa),
+    ]
+
+    if armazenador:
+        form_fields.append(("codigoUnidade", ""))
+        form_fields.append(("armazenador", "S"))
+    elif codigo_unidade_parceiro:
+        form_fields.append(("codigoUnidade", codigo_unidade_parceiro))
+
+    try:
+        if INEA_WORKAROUND_ENABLED:
+            response, destino_url = executar_post_inea_relay(
+                "/inea/buscaParceiro",
+                safe_to_retry=True,
+                json={
+                    "cnpj": cnpj,
+                    "cpf": cpf,
+                    "senha": senha,
+                    "unidadeCodigo": unidade_codigo or "",
+                    "tipoPessoaSociedade": tipo,
+                    "cnpjParceiro": cnpj_parceiro,
+                    "tipoPessoa": tipo_pessoa,
+                    "codigoUnidade": codigo_unidade_parceiro or "",
+                    "armazenador": armazenador,
+                },
+                timeout=(15, 90),
+                allow_redirects=False,
+            )
+        else:
+            session = login_inea_session(
+                cnpj=cnpj,
+                cpf=cpf,
+                senha=senha,
+                unidade_codigo=unidade_codigo,
+                tipo=tipo,
+            )
+
+            headers = {
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Referer": f"{INEA_BASE}/ControllerServlet?acao=cadastroManifesto",
+                "X-Requested-With": "XMLHttpRequest",
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/142.0.0.0 Safari/537.36"
+                ),
+            }
+
+            response = session.post(
+                LOGIN_URL,
+                data=form_fields,
+                headers=headers,
+                timeout=30,
+            )
+            destino_url = response.url
+
+        logger.info(
+            "[INEA] Rota busca-parceiro: resposta recebida | tipo_pessoa=%s | "
+            "status=%s | url=%s | resposta_bytes=%s",
+            tipo_pessoa,
+            response.status_code,
+            destino_url,
+            len(response.content or b""),
+        )
+
+        if response.status_code >= 400:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail="Erro ao buscar parceiro no INEA.",
+            )
+
+    except HTTPException:
+        raise
+    except requests.RequestException as error:
+        logger.exception(
+            "[INEA] Rota busca-parceiro: erro na comunicação com o INEA | "
+            "tipo_pessoa=%s",
+            tipo_pessoa,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro de comunicação com o INEA ao buscar parceiro: {str(error)}",
+        ) from error
+
+    try:
+        dados_parceiro = response.json()
+    except ValueError as error:
+        logger.exception(
+            "[INEA] Rota busca-parceiro: resposta JSON inválida | tipo_pessoa=%s",
+            tipo_pessoa,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Resposta inesperada do INEA ao buscar parceiro.",
+        ) from error
+
+    logger.info(
+        "[INEA] Rota busca-parceiro: consulta concluída | tipo_pessoa=%s",
+        tipo_pessoa,
+    )
+
+    return dados_parceiro
+
+
+# =========================
+# BUSCAR TRANSPORTADOR
+# =========================
+def buscar_transportador_inea(cnpj: str) -> dict[str, Any]:
+    return busca_parceiro_inea(
+        cnpj_parceiro=cnpj,
+        tipo_pessoa="2",
+    )
+
+
+# =========================
+# BUSCAR DESTINO
+# =========================
+def buscar_destino_inea(cnpj: str) -> dict[str, Any]:
+    return busca_parceiro_inea(
+        cnpj_parceiro=cnpj,
+        tipo_pessoa="4",
+    )
+
+
+# =========================
+# BUSCAR ARMAZENADOR
+# =========================
+def buscar_armazenador_inea(cnpj: str) -> dict[str, Any]:
+    return busca_parceiro_inea(
+        cnpj_parceiro=cnpj,
+        tipo_pessoa="2",
+        armazenador=True,
+    )
+
+
 def busca_dados_modelo_inea(
     cnpj: str,
     senha: str,

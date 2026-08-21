@@ -93,6 +93,9 @@ from services.inea import (
     busca_modelos_inea,
     busca_dados_modelo_inea,
     login_inea_status,
+    buscar_transportador_inea,
+    buscar_destino_inea,
+    buscar_armazenador_inea,
 )
 
 from services.sinir import busca_modelos_sinir, ConsultaSinirModeloRequest
@@ -713,6 +716,24 @@ def inea_buscar_modelos(dados: ConsultaIneaModeloRequest):
         'dados': modelos,
     }
 
+
+@app.post('/inea/busca-parceiro')
+def inea_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or '').strip().lower()
+
+    if tipo == 'destino':
+        resultado = buscar_destino_inea(dados.cnpj)
+    elif tipo == 'transportador':
+        resultado = buscar_transportador_inea(dados.cnpj)
+    elif tipo == 'armazenador':
+        resultado = buscar_armazenador_inea(dados.cnpj)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail='Tipo de parceiro inválido. Use: destino, transportador, armazenador',
+        )
+
+    return {'tipoParceiro': tipo, 'cnpj': dados.cnpj, 'resultado': resultado}
 
 @app.post('/inea/busca-modelo')
 def inea_buscar_modelo(dados: ConsultaIneaModeloDetalheRequest):
