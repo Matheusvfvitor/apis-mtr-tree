@@ -98,6 +98,22 @@ from services.inea import (
 from services.sinir import busca_modelos_sinir, ConsultaSinirModeloRequest
 from services.sigor import busca_modelos_sigor, ConsultaSigorModeloRequest
 
+from services.cprh import (
+    ConsultaCprhManifestoRequest,
+    EmitirManifestoCprhRequest,
+    CancelarManifestoCprhRequest,
+    DownloadManifestoCprhRequest,
+    DownloadCdfCprhRequest,
+    consulta_status_cprh,
+    emitir_manifesto_cprh,
+    cancelar_manifesto_cprh,
+    download_manifesto_cprh,
+    download_cdf_cprh,
+    buscar_transportador_cprh,
+    buscar_destino_cprh,
+    buscar_armazenador_cprh,
+)
+
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request, HTTPException
@@ -889,6 +905,156 @@ def semad_download_manifesto(dados: ConsultaSemadManifestoRequest):
         )
 
     return Response(content=conteudo, status_code=response_semad.status_code, media_type=content_type, headers={'Cache-Control': 'no-store'})
+
+
+# =========================
+# CPRH - PE
+# =========================
+@app.post('/cprh/check-status')
+def cprh_check_status(dados: ConsultaCprhManifestoRequest):
+    try:
+        manifesto = consulta_status_cprh(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+            codigo_barras=dados.codigoBarras,
+        )
+
+        return {'sucesso': True, 'orgao': 'CPRH', 'dados': manifesto}
+
+    except HTTPException as e:
+        raise e
+
+
+@app.post('/cprh/emitir-mtr')
+def cprh_emitir_mtr(dados: EmitirManifestoCprhRequest):
+    try:
+        resultado = emitir_manifesto_cprh(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+            manifesto_json_dtos=dados.manifestoJSONDtos,
+        )
+
+        return {'sucesso': True, 'orgao': 'CPRH', 'dados': resultado}
+
+    except HTTPException as e:
+        raise e
+
+
+@app.post('/cprh/cancelar-mtr')
+def cprh_cancelar_mtr(dados: CancelarManifestoCprhRequest):
+    try:
+        resultado = cancelar_manifesto_cprh(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+            manifesto_codigo=dados.manifestoCodigo,
+            justificativa=dados.justificativa,
+        )
+
+        return {'sucesso': True, 'orgao': 'CPRH', 'dados': resultado}
+
+    except HTTPException as e:
+        raise e
+
+
+@app.post('/cprh/download-mtr')
+def cprh_download_mtr(dados: DownloadManifestoCprhRequest):
+    response_cprh = download_manifesto_cprh(
+        pessoa_codigo=dados.pessoaCodigo,
+        cnpj=dados.cnpj,
+        cpf=dados.cpf,
+        senha=dados.senha,
+        codigo_barras=dados.codigoBarras,
+    )
+
+    conteudo = response_cprh.content or b''
+
+    content_type = response_cprh.headers.get('Content-Type', 'application/octet-stream')
+
+    is_pdf = 'application/pdf' in content_type.lower() or conteudo.startswith(b'%PDF')
+
+    if response_cprh.status_code == 200 and is_pdf:
+        return Response(
+            content=conteudo,
+            status_code=200,
+            media_type='application/pdf',
+            headers={
+                'Content-Disposition': (f'attachment; filename="MTR-{dados.codigoBarras}.pdf"'),
+                'Cache-Control': 'no-store',
+                'Content-Length': str(len(conteudo)),
+            },
+        )
+
+    return Response(
+        content=conteudo,
+        status_code=response_cprh.status_code,
+        headers={
+            'Content-Type': content_type,
+            'Cache-Control': 'no-store',
+        },
+    )
+
+
+@app.post('/cprh/download-cdf')
+def cprh_download_cdf(dados: DownloadCdfCprhRequest):
+    response_cprh = download_cdf_cprh(
+        pessoa_codigo=dados.pessoaCodigo,
+        cnpj=dados.cnpj,
+        cpf=dados.cpf,
+        senha=dados.senha,
+        numero_cdf=dados.numeroCdf,
+    )
+
+    conteudo = response_cprh.content or b''
+
+    content_type = response_cprh.headers.get('Content-Type', 'application/octet-stream')
+
+    is_pdf = 'application/pdf' in content_type.lower() or conteudo.startswith(b'%PDF')
+
+    if response_cprh.status_code == 200 and is_pdf:
+        return Response(
+            content=conteudo,
+            status_code=200,
+            media_type='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="CDF-{dados.numeroCdf}.pdf"',
+                'Cache-Control': 'no-store',
+                'Content-Length': str(len(conteudo)),
+            },
+        )
+
+    return Response(
+        content=conteudo,
+        status_code=response_cprh.status_code,
+        headers={
+            'Content-Type': content_type,
+            'Cache-Control': 'no-store',
+        },
+    )
+
+
+@app.post('/cprh/busca-parceiro')
+def cprh_buscar_parceiro(dados: BuscaParceiro):
+    tipo = (dados.tipoParceiro or '').strip().lower()
+
+    if tipo == 'destino':
+        resultado = buscar_destino_cprh(dados.cnpj)
+    elif tipo == 'transportador':
+        resultado = buscar_transportador_cprh(dados.cnpj)
+    elif tipo == 'armazenador':
+        resultado = buscar_armazenador_cprh(dados.cnpj)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail='Tipo de parceiro inválido. Use: destino, transportador, armazenador',
+        )
+
+    return {'tipoParceiro': tipo, 'cnpj': dados.cnpj, 'resultado': resultado}
 
 
 @app.get('/healthz')
