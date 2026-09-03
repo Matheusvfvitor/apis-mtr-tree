@@ -104,6 +104,7 @@ from services.cprh import (
     CancelarManifestoCprhRequest,
     DownloadManifestoCprhRequest,
     DownloadCdfCprhRequest,
+    ConsultaCprhLoginRequest,
     consulta_status_cprh,
     emitir_manifesto_cprh,
     cancelar_manifesto_cprh,
@@ -112,6 +113,13 @@ from services.cprh import (
     buscar_transportador_cprh,
     buscar_destino_cprh,
     buscar_armazenador_cprh,
+    gerar_token_cprh,
+    retorna_lista_classe_cprh,
+    retorna_lista_unidade_cprh,
+    retorna_lista_tecnologia_cprh,
+    retorna_lista_estado_fisico_cprh,
+    retorna_lista_residuo_cprh,
+    retorna_lista_acondicionamento_cprh,
 )
 
 from fastapi import FastAPI, HTTPException, Header
@@ -910,7 +918,7 @@ def semad_download_manifesto(dados: ConsultaSemadManifestoRequest):
 # =========================
 # CPRH - PE
 # =========================
-@app.post('/cprh/check-status')
+@app.post('/cprh/retorna-manifesto-codigo-de-barras')
 def cprh_check_status(dados: ConsultaCprhManifestoRequest):
     try:
         manifesto = consulta_status_cprh(
@@ -926,6 +934,18 @@ def cprh_check_status(dados: ConsultaCprhManifestoRequest):
     except HTTPException as e:
         raise e
 
+@app.post('/cprh/check-status')
+def cprh_check_status(dados: ConsultaCprhLoginRequest):
+    try:
+        token = gerar_token_cprh(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+        )
+        return {'sucesso': True, 'orgao': 'CPRH', 'dados': {'token': token}}
+    except HTTPException as e:
+        raise e
 
 @app.post('/cprh/emitir-mtr')
 def cprh_emitir_mtr(dados: EmitirManifestoCprhRequest):
@@ -1036,6 +1056,102 @@ def cprh_download_cdf(dados: DownloadCdfCprhRequest):
             'Cache-Control': 'no-store',
         },
     )
+
+
+@app.post('/cprh/lista-classe')
+def cprh_lista_classe(dados: ConsultaCprhLoginRequest):
+    try:
+        lista = retorna_lista_classe_cprh(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+        )
+
+        return {'sucesso': True, 'orgao': 'CPRH', 'dados': lista}
+
+    except HTTPException as e:
+        raise e
+
+
+@app.post('/cprh/lista-unidade')
+def cprh_lista_unidade(dados: ConsultaCprhLoginRequest):
+    try:
+        lista = retorna_lista_unidade_cprh(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+        )
+
+        return {'sucesso': True, 'orgao': 'CPRH', 'dados': lista}
+
+    except HTTPException as e:
+        raise e
+
+
+@app.post('/cprh/lista-tecnologia')
+def cprh_lista_tecnologia(dados: ConsultaCprhLoginRequest):
+    try:
+        lista = retorna_lista_tecnologia_cprh(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+        )
+
+        return {'sucesso': True, 'orgao': 'CPRH', 'dados': lista}
+
+    except HTTPException as e:
+        raise e
+
+
+@app.post('/cprh/lista-estado-fisico')
+def cprh_lista_estado_fisico(dados: ConsultaCprhLoginRequest):
+    try:
+        lista = retorna_lista_estado_fisico_cprh(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+        )
+
+        return {'sucesso': True, 'orgao': 'CPRH', 'dados': lista}
+
+    except HTTPException as e:
+        raise e
+
+
+@app.post('/cprh/lista-residuo')
+def cprh_lista_residuo(dados: ConsultaCprhLoginRequest):
+    try:
+        lista = retorna_lista_residuo_cprh(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+        )
+
+        return {'sucesso': True, 'orgao': 'CPRH', 'dados': lista}
+
+    except HTTPException as e:
+        raise e
+
+
+@app.post('/cprh/lista-acondicionamento')
+def cprh_lista_acondicionamento(dados: ConsultaCprhLoginRequest):
+    try:
+        lista = retorna_lista_acondicionamento_cprh(
+            pessoa_codigo=dados.pessoaCodigo,
+            cnpj=dados.cnpj,
+            cpf=dados.cpf,
+            senha=dados.senha,
+        )
+
+        return {'sucesso': True, 'orgao': 'CPRH', 'dados': lista}
+
+    except HTTPException as e:
+        raise e
 
 
 @app.post('/cprh/busca-parceiro')

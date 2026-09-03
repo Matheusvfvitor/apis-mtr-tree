@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import Any
 
-CPRH_BASE_URL = "https://homologa-mtr.cprh.pe.gov.br/api"
+CPRH_BASE_URL = "https://mtr.cprh.pe.gov.br/api"
 
 CPRH_HOST = "https://mtr.cprh.pe.gov.br"
 CPRH_CONTROLLER_URL = f"{CPRH_HOST}/ControllerServlet"
@@ -39,6 +39,12 @@ class EmitirManifestoCprhRequest(BaseModel):
     cpf: str
     senha: str
     manifestoJSONDtos: list[dict[str, Any]]
+
+class ConsultaCprhLoginRequest(BaseModel):
+    pessoaCodigo: int
+    cnpj: str
+    cpf: str
+    senha: str
 
 
 class CancelarManifestoCprhRequest(BaseModel):
@@ -92,14 +98,93 @@ def gerar_token_cprh(
         raise HTTPException(status_code=502, detail=f"Erro de comunicação com a CPRH (token): {str(e)}")
 
     if response.status_code != 200:
-        raise HTTPException(status_code=502, detail="Erro ao gerar token na CPRH")
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Erro ao gerar token na CPRH: HTTP {response.status_code} | "
+                f"body={response.text[:500]!r}"
+            ),
+        )
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Resposta não-JSON da CPRH (token): {response.text[:500]!r}",
+        )
 
     if data.get("retornoCodigo") != 0 or "token" not in data:
         raise HTTPException(status_code=401, detail=f"Falha na autenticação CPRH: {data}")
 
     return data["token"]
+
+
+# =========================
+# Listas auxiliares (Classe, Unidade, Tecnologia, Estado Físico,
+# Resíduo, Acondicionamento)
+# =========================
+def _retorna_lista_cprh(
+    endpoint: str,
+    pessoa_codigo: int,
+    cnpj: str,
+    cpf: str,
+    senha: str,
+) -> list:
+    token = gerar_token_cprh(pessoa_codigo=pessoa_codigo, cnpj=cnpj, cpf=cpf, senha=senha)
+
+    url = f"{CPRH_BASE_URL}/{endpoint}"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+
+    try:
+        response = requests.post(url, headers=headers, timeout=30)
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Erro de comunicação com a CPRH ({endpoint}): {str(e)}")
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Erro ao consultar {endpoint} na CPRH: HTTP {response.status_code} | "
+                f"body={response.text[:500]!r}"
+            ),
+        )
+
+    try:
+        return response.json()
+    except ValueError:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Resposta não-JSON da CPRH ({endpoint}): {response.text[:500]!r}",
+        )
+
+
+def retorna_lista_classe_cprh(pessoa_codigo: int, cnpj: str, cpf: str, senha: str) -> list:
+    return _retorna_lista_cprh("retornaListaClasse", pessoa_codigo, cnpj, cpf, senha)
+
+
+def retorna_lista_unidade_cprh(pessoa_codigo: int, cnpj: str, cpf: str, senha: str) -> list:
+    return _retorna_lista_cprh("retornaListaUnidade", pessoa_codigo, cnpj, cpf, senha)
+
+
+def retorna_lista_tecnologia_cprh(pessoa_codigo: int, cnpj: str, cpf: str, senha: str) -> list:
+    return _retorna_lista_cprh("retornaListaTecnologia", pessoa_codigo, cnpj, cpf, senha)
+
+
+def retorna_lista_estado_fisico_cprh(pessoa_codigo: int, cnpj: str, cpf: str, senha: str) -> list:
+    return _retorna_lista_cprh("retornaListaEstadoFisico", pessoa_codigo, cnpj, cpf, senha)
+
+
+def retorna_lista_residuo_cprh(pessoa_codigo: int, cnpj: str, cpf: str, senha: str) -> list:
+    return _retorna_lista_cprh("retornaListaResiduo", pessoa_codigo, cnpj, cpf, senha)
+
+
+def retorna_lista_acondicionamento_cprh(pessoa_codigo: int, cnpj: str, cpf: str, senha: str) -> list:
+    return _retorna_lista_cprh("retornaListaAcondicionamento", pessoa_codigo, cnpj, cpf, senha)
 
 
 # =========================
