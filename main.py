@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 
 from services.fepam import ConsultaFepamManifestoRequest, retorna_manifesto_fepam
 from services.feam import (
@@ -260,20 +261,58 @@ def feam_buscar_declaracao_dmr(dados: BuscarDeclaracaoDMRRequest):
 @app.post('/feam/busca-parceiro')
 def feam_buscar_parceiro(dados: BuscaParceiro):
     tipo = (dados.tipoParceiro or '').strip().lower()
+    cnpj = ''.join(char for char in str(dados.cnpj or '') if char.isdigit())
+    cnpj_log = f'***{cnpj[-4:]}' if len(cnpj) >= 4 else '***'
+    logger = logging.getLogger('feam.busca_parceiro')
+    started_at = time.perf_counter()
 
-    if tipo == 'destino':
-        resultado = buscar_destino_feam(dados.cnpj)
-    elif tipo == 'transportador':
-        resultado = buscar_transportador_feam(dados.cnpj)
-    elif tipo == 'armazenador':
-        resultado = buscar_armazenador_feam(dados.cnpj)
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail='Tipo de parceiro inválido. Use: destino, transportador, armazenador',
+    logger.info(
+        'request.start tipo=%s cnpj=%s',
+        tipo,
+        cnpj_log,
+    )
+
+    try:
+        if tipo == 'destino':
+            resultado = buscar_destino_feam(dados.cnpj)
+        elif tipo == 'transportador':
+            resultado = buscar_transportador_feam(dados.cnpj)
+        elif tipo == 'armazenador':
+            resultado = buscar_armazenador_feam(dados.cnpj)
+        else:
+            logger.warning('request.invalid_type tipo=%s cnpj=%s', tipo, cnpj_log)
+            raise HTTPException(
+                status_code=400,
+                detail='Tipo de parceiro inválido. Use: destino, transportador, armazenador',
+            )
+
+        logger.info(
+            'request.success tipo=%s cnpj=%s resultado=%s elapsed_ms=%.0f',
+            tipo,
+            cnpj_log,
+            bool(resultado),
+            (time.perf_counter() - started_at) * 1000,
         )
+        return {'tipoParceiro': tipo, 'cnpj': dados.cnpj, 'resultado': resultado}
+    except HTTPException as e:
+        logger.warning(
+            'request.http_error tipo=%s cnpj=%s status=%s elapsed_ms=%.0f',
+            tipo,
+            cnpj_log,
+            e.status_code,
+            (time.perf_counter() - started_at) * 1000,
+        )
+        raise
+    except Exception as e:
+        logger.error(
+            'request.unexpected_error tipo=%s cnpj=%s error_type=%s elapsed_ms=%.0f',
+            tipo,
+            cnpj_log,
+            type(e).__name__,
+            (time.perf_counter() - started_at) * 1000,
+        )
+        raise
 
-    return {'tipoParceiro': tipo, 'cnpj': dados.cnpj, 'resultado': resultado}
 
 
 # ================================================================================================================

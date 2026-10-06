@@ -1,8 +1,25 @@
+import logging
+
 import requests
 from fastapi import HTTPException
 from pydantic import BaseModel
 
 FEAM_BASE_URL = "https://mtr.meioambiente.mg.gov.br/api"
+logger = logging.getLogger("feam")
+
+
+def _feam_mask_identifier(value: str) -> str:
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    return f"***{digits[-4:]}" if len(digits) >= 4 else "***"
+
+
+def _feam_response_preview(text: str, secrets=()) -> str:
+    preview = str(text or "")
+    for secret in secrets:
+        secret = str(secret or "")
+        if secret:
+            preview = preview.replace(secret, "<REDACTED>")
+    return " ".join(preview.split())[:400]
 
 
 # =========================
@@ -104,31 +121,79 @@ def get_cookies_feam(
     cpf: str,
     cnpj: str,
     unidade: str,
-    senha: str
+    senha: str,
+    context: str = "feam",
 ):
     url = (
         "https://scheduler-python-dmr-webservice.4ps3wk.easypanel.host"
         f"/feam-login?cnpj={cnpj}&senha={senha}&cpf={cpf}&unidadeCodigo={unidade}"
     )
 
+    started_at = time.perf_counter()
+    logger.info(
+        "step=cookie_login.start context=%s cnpj=%s unidade=%s",
+        context,
+        _feam_mask_identifier(cnpj),
+        unidade,
+    )
+
     try:
         response = requests.get(url, timeout=60)
     except requests.RequestException as e:
+        logger.error(
+            "step=cookie_login.transport_error context=%s cnpj=%s error_type=%s elapsed_ms=%.0f",
+            context,
+            _feam_mask_identifier(cnpj),
+            type(e).__name__,
+            (time.perf_counter() - started_at) * 1000,
+        )
         raise HTTPException(
             status_code=502,
-            detail=f"Erro ao comunicar com serviço Selenium FEAM: {str(e)}"
-        )
+            detail=f"Erro ao comunicar com serviço Selenium FEAM: {str(e)}",
+        ) from e
+
+    logger.info(
+        "step=cookie_login.response context=%s cnpj=%s http_status=%s elapsed_ms=%.0f content_type=%s",
+        context,
+        _feam_mask_identifier(cnpj),
+        response.status_code,
+        (time.perf_counter() - started_at) * 1000,
+        response.headers.get("Content-Type", ""),
+    )
 
     if response.status_code != 200:
+        logger.warning(
+            "step=cookie_login.rejected context=%s cnpj=%s http_status=%s body=%s",
+            context,
+            _feam_mask_identifier(cnpj),
+            response.status_code,
+            _feam_response_preview(response.text, (cpf, cnpj, unidade, senha)),
+        )
         raise HTTPException(
             status_code=502,
             detail="Falha ao autenticar na FEAM"
         )
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError:
+        logger.warning(
+            "step=cookie_login.invalid_json context=%s cnpj=%s body=%s",
+            context,
+            _feam_mask_identifier(cnpj),
+            _feam_response_preview(response.text, (cpf, cnpj, unidade, senha)),
+        )
+        raise
+
     cookies = data.get("cookies")
 
     if not cookies:
+        logger.warning(
+            "step=cookie_login.cookies_missing context=%s cnpj=%s response_keys=%s",
+            context,
+            _feam_mask_identifier(cnpj),
+            sorted(data.keys()) if isinstance(data, dict) else type(data).__name__,
+        )
         raise HTTPException(
             status_code=401,
             detail="Cookies não retornados pela FEAM"
@@ -138,10 +203,23 @@ def get_cookies_feam(
     cookies_map = {c["name"]: c["value"] for c in cookies}
 
     if "JSESSIONID" not in cookies_map:
+        logger.warning(
+            "step=cookie_login.jsessionid_missing context=%s cnpj=%s cookie_names=%s",
+            context,
+            _feam_mask_identifier(cnpj),
+            sorted(cookies_map.keys()),
+        )
         raise HTTPException(
             status_code=401,
             detail="JSESSIONID não encontrado nos cookies FEAM"
         )
+
+    logger.info(
+        "step=cookie_login.success context=%s cnpj=%s cookie_names=%s jsessionid_present=true",
+        context,
+        _feam_mask_identifier(cnpj),
+        sorted(cookies_map.keys()),
+    )
 
     return {
         "JSESSIONID": cookies_map.get("JSESSIONID"),
@@ -496,15 +574,68 @@ def buscar_declaracao_dmr(
 # BUSCA PARCEIROS
 #==========================================================================================
 
+def _registrar_resposta_parceiro_feam(response, tipo: str, cnpj: str, started_at: float):
+    cnpj_log = _feam_mask_identifier(cnpj)
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "step=partner_lookup.upstream_response tipo=%s cnpj=%s http_status=%s elapsed_ms=%.0f content_type=%s",
+        tipo,
+        cnpj_log,
+        response.status_code,
+        elapsed_ms,
+        response.headers.get("Content-Type", ""),
+    )
+
+    if response.status_code != 200:
+        logger.warning(
+            "step=partner_lookup.upstream_rejected tipo=%s cnpj=%s http_status=%s body=%s",
+            tipo,
+            cnpj_log,
+            response.status_code,
+            _feam_response_preview(response.text, (cnpj,)),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro FEAM HTTP {response.status_code}"
+        )
+
+    try:
+        result = response.json()
+    except ValueError:
+        logger.warning(
+            "step=partner_lookup.invalid_json tipo=%s cnpj=%s body=%s",
+            tipo,
+            cnpj_log,
+            _feam_response_preview(response.text, (cnpj,)),
+        )
+        raise
+
+    result_keys = sorted(result.keys()) if isinstance(result, dict) else []
+    logger.info(
+        "step=partner_lookup.success tipo=%s cnpj=%s response_type=%s response_keys=%s elapsed_ms=%.0f",
+        tipo,
+        cnpj_log,
+        type(result).__name__,
+        result_keys,
+        elapsed_ms,
+    )
+    return result
+
 # =====================
 # Busca Transportador
 # =====================
 
 def buscar_transportador_feam(cnpj):
-    print('\n ==== BUSCANDO TRANSPORTADOR FEAM ====== ')
+    started_at = time.perf_counter()
+    cnpj_log = _feam_mask_identifier(cnpj)
+    logger.info("step=partner_lookup.start tipo=transportador cnpj=%s tipo_pessoa=2", cnpj_log)
     
-    cookies = get_cookies_feam('04304532642','39228967000160', '201050', 'T2m@2024')
-    print('cookies', cookies)
+    cookies = get_cookies_feam('04304532642','39228967000160', '201050', 'T2m@2024', context='partner:transportador')
+    logger.info(
+        "step=partner_lookup.cookies_ready tipo=transportador cnpj=%s cookie_names=%s",
+        cnpj_log,
+        sorted(name for name, value in cookies.items() if value),
+    )
     
     params = {
     "acao": "buscaPessoaPorTipo",
@@ -514,6 +645,8 @@ def buscar_transportador_feam(cnpj):
     
     session = _session_with_retries()
     timeout: int = 30
+    request_started_at = time.perf_counter()
+    logger.info("step=partner_lookup.upstream_request.start tipo=transportador cnpj=%s", cnpj_log)
     
     try:
         resp = session.post(
@@ -524,20 +657,26 @@ def buscar_transportador_feam(cnpj):
             allow_redirects=True,
         )
     except requests.RequestException as e:
+        logger.error(
+            "step=partner_lookup.upstream_request.transport_error tipo=transportador cnpj=%s error_type=%s elapsed_ms=%.0f",
+            cnpj_log,
+            type(e).__name__,
+            (time.perf_counter() - request_started_at) * 1000,
+        )
         raise HTTPException(
             status_code=502,
             detail=f"Erro de comunicação com FEAM (busca declaração): {str(e)}"
         )
 
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Erro FEAM HTTP {resp.status_code}"
-        )
-        
-    print(resp.json())
-    return resp.json()
-    print('======================================= ')
+    result = _registrar_resposta_parceiro_feam(
+        resp, "transportador", cnpj, request_started_at,
+    )
+    logger.info(
+        "step=partner_lookup.complete tipo=transportador cnpj=%s total_elapsed_ms=%.0f",
+        cnpj_log,
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return result
 
           
 # =====================
@@ -545,10 +684,16 @@ def buscar_transportador_feam(cnpj):
 # =====================
 
 def buscar_armazenador_feam(cnpj):
-    print('\n ==== BUSCANDO ARMAZENADOR FEAM ====== ')
+    started_at = time.perf_counter()
+    cnpj_log = _feam_mask_identifier(cnpj)
+    logger.info("step=partner_lookup.start tipo=armazenador cnpj=%s tipo_pessoa=2", cnpj_log)
     
-    cookies = get_cookies_feam('04304532642','39228967000160', '201050', 'T2m@2024')
-    print('cookies', cookies)
+    cookies = get_cookies_feam('04304532642','39228967000160', '201050', 'T2m@2024', context='partner:armazenador')
+    logger.info(
+        "step=partner_lookup.cookies_ready tipo=armazenador cnpj=%s cookie_names=%s",
+        cnpj_log,
+        sorted(name for name, value in cookies.items() if value),
+    )
     
     params = {
     "acao": "buscaPessoaPorTipo",
@@ -560,6 +705,8 @@ def buscar_armazenador_feam(cnpj):
     
     session = _session_with_retries()
     timeout: int = 30
+    request_started_at = time.perf_counter()
+    logger.info("step=partner_lookup.upstream_request.start tipo=armazenador cnpj=%s", cnpj_log)
     
     try:
         resp = session.post(
@@ -570,29 +717,41 @@ def buscar_armazenador_feam(cnpj):
             allow_redirects=True,
         )
     except requests.RequestException as e:
+        logger.error(
+            "step=partner_lookup.upstream_request.transport_error tipo=armazenador cnpj=%s error_type=%s elapsed_ms=%.0f",
+            cnpj_log,
+            type(e).__name__,
+            (time.perf_counter() - request_started_at) * 1000,
+        )
         raise HTTPException(
             status_code=502,
             detail=f"Erro de comunicação com FEAM (busca declaração): {str(e)}"
         )
 
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Erro FEAM HTTP {resp.status_code}"
-        )
-        
-    print(resp.json())
-    print('===================================== ')
-    return resp.json()
+    result = _registrar_resposta_parceiro_feam(
+        resp, "armazenador", cnpj, request_started_at,
+    )
+    logger.info(
+        "step=partner_lookup.complete tipo=armazenador cnpj=%s total_elapsed_ms=%.0f",
+        cnpj_log,
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return result
 # =====================
 # Busca Destino
 # =====================
 
 def buscar_destino_feam(cnpj):
-    print('\n ==== BUSCANDO DESTINO FEAM ====== ')
+    started_at = time.perf_counter()
+    cnpj_log = _feam_mask_identifier(cnpj)
+    logger.info("step=partner_lookup.start tipo=destino cnpj=%s tipo_pessoa=4", cnpj_log)
     
-    cookies = get_cookies_feam('04304532642','39228967000160', '201050', 'T2m@2024')
-    print('cookies', cookies)
+    cookies = get_cookies_feam('04304532642','39228967000160', '201050', 'T2m@2024', context='partner:destino')
+    logger.info(
+        "step=partner_lookup.cookies_ready tipo=destino cnpj=%s cookie_names=%s",
+        cnpj_log,
+        sorted(name for name, value in cookies.items() if value),
+    )
     
     params = {
     "acao": "buscaPessoaPorTipo",
@@ -602,6 +761,8 @@ def buscar_destino_feam(cnpj):
     
     session = _session_with_retries()
     timeout: int = 30
+    request_started_at = time.perf_counter()
+    logger.info("step=partner_lookup.upstream_request.start tipo=destino cnpj=%s", cnpj_log)
     
     try:
         resp = session.post(
@@ -612,20 +773,26 @@ def buscar_destino_feam(cnpj):
             allow_redirects=True,
         )
     except requests.RequestException as e:
+        logger.error(
+            "step=partner_lookup.upstream_request.transport_error tipo=destino cnpj=%s error_type=%s elapsed_ms=%.0f",
+            cnpj_log,
+            type(e).__name__,
+            (time.perf_counter() - request_started_at) * 1000,
+        )
         raise HTTPException(
             status_code=502,
             detail=f"Erro de comunicação com FEAM (busca declaração): {str(e)}"
         )
 
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Erro FEAM HTTP {resp.status_code}"
-        )
-        
-    print(resp.json())
-    print('================================= ')
-    return resp.json()
+    result = _registrar_resposta_parceiro_feam(
+        resp, "destino", cnpj, request_started_at,
+    )
+    logger.info(
+        "step=partner_lookup.complete tipo=destino cnpj=%s total_elapsed_ms=%.0f",
+        cnpj_log,
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return result
             
 
 #buscar_transportador_feam('39228967000160')
