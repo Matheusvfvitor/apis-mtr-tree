@@ -140,6 +140,7 @@ class BuscaParceiro(BaseModel):
 def feam_retorna_manifesto(dados: ConsultaFeamManifestoRequest):
     try:
         manifesto = retorna_manifesto_feam(
+            cpf=dados.cpf,
             cnpj=dados.cnpj,
             senha=dados.senha,
             unidade=dados.unidadeGerador,

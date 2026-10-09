@@ -2,7 +2,7 @@ import logging
 
 import requests
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 FEAM_BASE_URL = "https://mtr.meioambiente.mg.gov.br/api"
 logger = logging.getLogger("feam")
@@ -26,10 +26,12 @@ def _feam_response_preview(text: str, secrets=()) -> str:
 # Schema de entrada FEAM
 # =========================
 class ConsultaFeamManifestoRequest(BaseModel):
+    cpf: str
     cnpj: str
     senha: str
     unidadeGerador: int
     codigoDeBarras: str
+    model_config = ConfigDict(extra="forbid")
 
 # =========================
 # Schema de entrada Get Cookies
@@ -54,24 +56,37 @@ class AtualizarItensDMRRequest(BaseModel):
 # =========================
 # Token FEAM
 # =========================
-def gerar_token_feam(cnpj: str, senha: str, unidade: int):
+def gerar_token_feam(cpf: str, cnpj: str, senha: str, unidade: int):
     url = f"{FEAM_BASE_URL}/gettoken"
 
     payload = {
         "pessoaCodigo": unidade,
         "pessoaCnpj": cnpj,
-        "usuarioCpf": "13280058600",  # manter fixo por enquanto
+        "usuarioCpf": cpf,
         "senha": senha
     }
 
     headers = {"Content-Type": "application/json"}
 
-    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except requests.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Timeout na comunicação com a FEAM (token).",
+        )
+    except requests.RequestException:
+        raise HTTPException(
+            status_code=502,
+            detail="Erro de comunicação com a FEAM (token).",
+        )
 
     if response.status_code != 200:
         raise HTTPException(
-            status_code=502,
-            detail="Erro ao gerar token na FEAM"
+            status_code=response.status_code
+            if response.status_code in (401, 403) or response.status_code >= 500
+            else 502,
+            detail="Erro ao gerar token na FEAM",
         )
 
     data = response.json()
@@ -79,7 +94,7 @@ def gerar_token_feam(cnpj: str, senha: str, unidade: int):
     if "token" not in data or "chave" not in data:
         raise HTTPException(
             status_code=401,
-            detail=f"Falha na autenticação FEAM: {data}"
+            detail="Falha na autenticação FEAM.",
         )
 
     return data["token"], data["chave"]
@@ -89,12 +104,18 @@ def gerar_token_feam(cnpj: str, senha: str, unidade: int):
 # Consulta Manifesto FEAM
 # =========================
 def retorna_manifesto_feam(
+    cpf: str,
     cnpj: str,
     senha: str,
     unidade: int,
     codigo_barras: str
 ):
-    token, chave = gerar_token_feam(cnpj, senha, unidade)
+    token, chave = gerar_token_feam(
+        cpf=cpf,
+        cnpj=cnpj,
+        senha=senha,
+        unidade=unidade,
+    )
 
     url = f"{FEAM_BASE_URL}/retornaManifesto/{codigo_barras}"
 
@@ -103,12 +124,25 @@ def retorna_manifesto_feam(
         "chave_feam": chave
     }
 
-    response = requests.post(url, headers=headers, timeout=30)
+    try:
+        response = requests.post(url, headers=headers, timeout=30)
+    except requests.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Timeout na comunicação com a FEAM (manifesto).",
+        )
+    except requests.RequestException:
+        raise HTTPException(
+            status_code=502,
+            detail="Erro de comunicação com a FEAM (manifesto).",
+        )
 
     if response.status_code != 200:
         raise HTTPException(
-            status_code=502,
-            detail="Erro ao consultar manifesto na FEAM"
+            status_code=response.status_code
+            if response.status_code in (401, 403) or response.status_code >= 500
+            else 502,
+            detail="Erro ao consultar manifesto na FEAM",
         )
 
     return response.json()

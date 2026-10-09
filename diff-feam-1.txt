@@ -1,0 +1,341 @@
+Diff FEAM-1 — autenticação sem credenciais fixas
+
+
+diff --git a/main.py b/main.py
+index 6bc979d..ba9902b 100644
+--- a/main.py
++++ b/main.py
+@@ -140,6 +140,7 @@ class BuscaParceiro(BaseModel):
+ def feam_retorna_manifesto(dados: ConsultaFeamManifestoRequest):
+     try:
+         manifesto = retorna_manifesto_feam(
++            cpf=dados.cpf,
+             cnpj=dados.cnpj,
+             senha=dados.senha,
+             unidade=dados.unidadeGerador,
+diff --git a/services/feam.py b/services/feam.py
+index c198967..389577b 100644
+--- a/services/feam.py
++++ b/services/feam.py
+@@ -2,7 +2,7 @@ import logging
+ 
+ import requests
+ from fastapi import HTTPException
+-from pydantic import BaseModel
++from pydantic import BaseModel, ConfigDict
+ 
+ FEAM_BASE_URL = "https://mtr.meioambiente.mg.gov.br/api"
+ logger = logging.getLogger("feam")
+@@ -26,10 +26,12 @@ def _feam_response_preview(text: str, secrets=()) -> str:
+ # Schema de entrada FEAM
+ # =========================
+ class ConsultaFeamManifestoRequest(BaseModel):
++    cpf: str
+     cnpj: str
+     senha: str
+     unidadeGerador: int
+     codigoDeBarras: str
++    model_config = ConfigDict(extra="forbid")
+ 
+ # =========================
+ # Schema de entrada Get Cookies
+@@ -54,24 +56,37 @@ class AtualizarItensDMRRequest(BaseModel):
+ # =========================
+ # Token FEAM
+ # =========================
+-def gerar_token_feam(cnpj: str, senha: str, unidade: int):
++def gerar_token_feam(cpf: str, cnpj: str, senha: str, unidade: int):
+     url = f"{FEAM_BASE_URL}/gettoken"
+ 
+     payload = {
+         "pessoaCodigo": unidade,
+         "pessoaCnpj": cnpj,
+-        "usuarioCpf": "13280058600",  # manter fixo por enquanto
++        "usuarioCpf": cpf,
+         "senha": senha
+     }
+ 
+     headers = {"Content-Type": "application/json"}
+ 
+-    response = requests.post(url, json=payload, headers=headers, timeout=30)
++    try:
++        response = requests.post(url, json=payload, headers=headers, timeout=30)
++    except requests.Timeout:
++        raise HTTPException(
++            status_code=504,
++            detail="Timeout na comunicação com a FEAM (token).",
++        )
++    except requests.RequestException:
++        raise HTTPException(
++            status_code=502,
++            detail="Erro de comunicação com a FEAM (token).",
++        )
+ 
+     if response.status_code != 200:
+         raise HTTPException(
+-            status_code=502,
+-            detail="Erro ao gerar token na FEAM"
++            status_code=response.status_code
++            if response.status_code in (401, 403) or response.status_code >= 500
++            else 502,
++            detail="Erro ao gerar token na FEAM",
+         )
+ 
+     data = response.json()
+@@ -79,7 +94,7 @@ def gerar_token_feam(cnpj: str, senha: str, unidade: int):
+     if "token" not in data or "chave" not in data:
+         raise HTTPException(
+             status_code=401,
+-            detail=f"Falha na autenticação FEAM: {data}"
++            detail="Falha na autenticação FEAM.",
+         )
+ 
+     return data["token"], data["chave"]
+@@ -89,12 +104,18 @@ def gerar_token_feam(cnpj: str, senha: str, unidade: int):
+ # Consulta Manifesto FEAM
+ # =========================
+ def retorna_manifesto_feam(
++    cpf: str,
+     cnpj: str,
+     senha: str,
+     unidade: int,
+     codigo_barras: str
+ ):
+-    token, chave = gerar_token_feam(cnpj, senha, unidade)
++    token, chave = gerar_token_feam(
++        cpf=cpf,
++        cnpj=cnpj,
++        senha=senha,
++        unidade=unidade,
++    )
+ 
+     url = f"{FEAM_BASE_URL}/retornaManifesto/{codigo_barras}"
+ 
+@@ -103,12 +124,25 @@ def retorna_manifesto_feam(
+         "chave_feam": chave
+     }
+ 
+-    response = requests.post(url, headers=headers, timeout=30)
++    try:
++        response = requests.post(url, headers=headers, timeout=30)
++    except requests.Timeout:
++        raise HTTPException(
++            status_code=504,
++            detail="Timeout na comunicação com a FEAM (manifesto).",
++        )
++    except requests.RequestException:
++        raise HTTPException(
++            status_code=502,
++            detail="Erro de comunicação com a FEAM (manifesto).",
++        )
+ 
+     if response.status_code != 200:
+         raise HTTPException(
+-            status_code=502,
+-            detail="Erro ao consultar manifesto na FEAM"
++            status_code=response.status_code
++            if response.status_code in (401, 403) or response.status_code >= 500
++            else 502,
++            detail="Erro ao consultar manifesto na FEAM",
+         )
+ 
+     return response.json()
+
+diff --git a/tests/test_feam_auth.py b/tests/test_feam_auth.py
+new file mode 100644
+index 0000000..ff7d627
+--- /dev/null
++++ b/tests/test_feam_auth.py
+@@ -0,0 +1,192 @@
++from unittest.mock import Mock, patch
++
++import pytest
++import requests
++from fastapi import HTTPException
++from fastapi.testclient import TestClient
++
++import main
++from services.feam import gerar_token_feam, retorna_manifesto_feam
++
++client = TestClient(main.app)
++
++
++def test_rota_feam_encaminha_credenciais_do_request():
++    manifesto_response = Mock(status_code=200)
++    manifesto_response.json.return_value = {"numero": "123456"}
++
++    with (
++        patch("services.feam.requests.post", return_value=manifesto_response),
++        patch("services.feam.gerar_token_feam", return_value=("token-secreto", "chave-secreta")) as gerar_token,
++    ):
++        response = client.post(
++            "/feam/retorna-manifesto-codigo-de-barras",
++            json={
++                "cpf": "cpf-do-request",
++                "cnpj": "cnpj-do-request",
++                "senha": "senha-do-request",
++                "unidadeGerador": 42,
++                "codigoDeBarras": "123456",
++            },
++        )
++
++    assert response.status_code == 200
++    gerar_token.assert_called_once_with(
++        cpf="cpf-do-request",
++        cnpj="cnpj-do-request",
++        senha="senha-do-request",
++        unidade=42,
++    )
++    assert response.json()["dados"] == {"numero": "123456"}
++
++
++def test_gerar_token_feam_usa_cpf_cnpj_senha_e_unidade_recebidos():
++    response = Mock(status_code=200)
++    response.json.return_value = {"token": "token-feam", "chave": "chave-feam"}
++
++    with patch("services.feam.requests.post", return_value=response) as post:
++        credentials = gerar_token_feam(
++            cpf="cpf-do-request",
++            cnpj="cnpj-do-request",
++            senha="senha-do-request",
++            unidade=17,
++        )
++
++    assert credentials == ("token-feam", "chave-feam")
++    assert post.call_args.kwargs["json"] == {
++        "pessoaCodigo": 17,
++        "pessoaCnpj": "cnpj-do-request",
++        "usuarioCpf": "cpf-do-request",
++        "senha": "senha-do-request",
++    }
++
++
++def test_retorna_manifesto_feam_envia_token_e_chave_recebidos():
++    response = Mock(status_code=200)
++    response.json.return_value = {"numero": "123456"}
++
++    with (
++        patch("services.feam.gerar_token_feam", return_value=("token-feam", "chave-feam")) as gerar_token,
++        patch("services.feam.requests.post", return_value=response) as post,
++    ):
++        result = retorna_manifesto_feam(
++            cpf="cpf-do-request",
++            cnpj="cnpj-do-request",
++            senha="senha-do-request",
++            unidade=17,
++            codigo_barras="123456",
++        )
++
++    assert result == {"numero": "123456"}
++    gerar_token.assert_called_once_with(
++        cpf="cpf-do-request",
++        cnpj="cnpj-do-request",
++        senha="senha-do-request",
++        unidade=17,
++    )
++    assert post.call_args.kwargs["headers"] == {
++        "Authorization": "Bearer token-feam",
++        "chave_feam": "chave-feam",
++    }
++
++
++def test_gerar_token_feam_timeout_retorna_504():
++    with (
++        patch("services.feam.requests.post", side_effect=requests.Timeout("timeout")),
++        pytest.raises(HTTPException) as exc_info,
++    ):
++        gerar_token_feam("cpf", "cnpj", "senha", 1)
++
++    assert exc_info.value.status_code == 504
++    assert exc_info.value.detail == "Timeout na comunicação com a FEAM (token)."
++
++
++def test_retorna_manifesto_feam_timeout_retorna_504():
++    with (
++        patch("services.feam.gerar_token_feam", return_value=("token", "chave")),
++        patch("services.feam.requests.post", side_effect=requests.Timeout("timeout")),
++        pytest.raises(HTTPException) as exc_info,
++    ):
++        retorna_manifesto_feam("cpf", "cnpj", "senha", 1, "123456")
++
++    assert exc_info.value.status_code == 504
++    assert exc_info.value.detail == "Timeout na comunicação com a FEAM (manifesto)."
++
++
++@pytest.mark.parametrize("operation", ["token", "manifesto"])
++def test_feam_erro_de_rede_retorna_502(operation):
++    with (
++        patch("services.feam.requests.post", side_effect=requests.ConnectionError("erro")),
++        patch("services.feam.gerar_token_feam", return_value=("token", "chave")),
++        pytest.raises(HTTPException) as exc_info,
++    ):
++        if operation == "token":
++            gerar_token_feam("cpf", "cnpj", "senha", 1)
++        else:
++            retorna_manifesto_feam("cpf", "cnpj", "senha", 1, "123456")
++
++    assert exc_info.value.status_code == 502
++
++
++@pytest.mark.parametrize("status_code", [401, 403, 500, 502, 503, 504])
++@pytest.mark.parametrize("operation", ["token", "manifesto"])
++def test_feam_preserva_status_de_autenticacao_e_sistemico(status_code, operation):
++    response = Mock(status_code=status_code)
++    with (
++        patch("services.feam.requests.post", return_value=response),
++        patch("services.feam.gerar_token_feam", return_value=("token", "chave")),
++        pytest.raises(HTTPException) as exc_info,
++    ):
++        if operation == "token":
++            gerar_token_feam("cpf", "cnpj", "senha", 1)
++        else:
++            retorna_manifesto_feam("cpf", "cnpj", "senha", 1, "123456")
++
++    assert exc_info.value.status_code == status_code
++
++
++@pytest.mark.parametrize("operation", ["token", "manifesto"])
++def test_feam_nao_expoe_credenciais_em_erro(operation):
++    secrets = ("senha-super-secreta", "token-super-secreto", "chave-super-secreta")
++    with (
++        patch("services.feam.requests.post", side_effect=requests.ConnectionError("erro")),
++        patch("services.feam.gerar_token_feam", return_value=(secrets[1], secrets[2])),
++        pytest.raises(HTTPException) as exc_info,
++    ):
++        if operation == "token":
++            gerar_token_feam("cpf-completo", "cnpj", secrets[0], 1)
++        else:
++            retorna_manifesto_feam("cpf-completo", "cnpj", secrets[0], 1, "123456")
++
++    detail = str(exc_info.value.detail)
++    assert all(secret not in detail for secret in (*secrets, "cpf-completo"))
++
++
++def test_gerar_token_feam_nao_expoe_resposta_sensivel_em_detail():
++    response = Mock(status_code=200)
++    response.json.return_value = {"token": "token-super-secreto"}
++
++    with (
++        patch("services.feam.requests.post", return_value=response),
++        pytest.raises(HTTPException) as exc_info,
++    ):
++        gerar_token_feam("cpf", "cnpj", "senha-super-secreta", 1)
++
++    assert exc_info.value.status_code == 401
++    assert "token-super-secreto" not in str(exc_info.value.detail)
++    assert "senha-super-secreta" not in str(exc_info.value.detail)
++
++
++def test_rota_feam_rejeita_campos_extra_e_exige_cpf():
++    response = client.post(
++        "/feam/retorna-manifesto-codigo-de-barras",
++        json={
++            "cnpj": "cnpj",
++            "senha": "senha",
++            "unidadeGerador": 1,
++            "codigoDeBarras": "123456",
++            "campoExtra": "valor",
++        },
++    )
++
++    assert response.status_code == 422
