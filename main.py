@@ -1,3 +1,4 @@
+from services.mtr_query_validation import safe_mtr_query_post
 from datetime import datetime
 import time
 
@@ -869,7 +870,7 @@ def sigor_buscar_modelos(dados: ConsultaSigorModeloRequest):
 # =========================
 # SEMAD - GO
 # =========================
-@app.post('/semad/retorna-manifesto-codigo-de-barras')
+@safe_mtr_query_post(app, '/semad/retorna-manifesto-codigo-de-barras')
 def semad_retorna_manifesto(dados: ConsultaSemadManifestoRequest):
     try:
         token = gerar_token_semad(

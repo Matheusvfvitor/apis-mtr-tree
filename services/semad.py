@@ -1,6 +1,9 @@
 import requests
+import logging
+import re
+import time
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, Tuple, Optional, Union, Any
 
 SEMAD_BASE_URL = "https://mtr.meioambiente.go.gov.br/api"
@@ -10,63 +13,76 @@ SEMAD_BASE_URL = "https://mtr.meioambiente.go.gov.br/api"
 # Schema de entrada SEMAD
 # =========================
 class ConsultaSemadManifestoRequest(BaseModel):
-    pessoaCodigo: int
-    cnpj: str
-    cpf: str
-    senha: str
-    codigoBarras: str
+    pessoaCodigo: int = Field(gt=0)
+    cnpj: str = Field(min_length=1)
+    cpf: str = Field(min_length=1)
+    senha: str = Field(min_length=1)
+    codigoBarras: str = Field(pattern=r"^[0-9]{34}$")
+
+    @field_validator("pessoaCodigo", mode="before")
+    @classmethod
+    def validar_pessoa_codigo(cls, value):
+        if isinstance(value, (bool, float)):
+            raise ValueError("pessoaCodigo deve ser inteiro.")
+        return value
+
+    @field_validator("cnpj", "cpf", "senha")
+    @classmethod
+    def validar_obrigatorios(cls, value):
+        if not value.strip():
+            raise ValueError("Campo obrigatório SEMAD vazio.")
+        return value
 
 
 # =========================
 # Passo 1 - Get Token SEMAD
 # =========================
-def gerar_token_semad(
-    pessoa_codigo: int,
-    cnpj: str,
-    cpf: str,
-    senha: str
-) -> str:
-    url = f"{SEMAD_BASE_URL}/gettoken"
+logger = logging.getLogger("semad")
 
-    payload = {
-        "pessoaCodigo": pessoa_codigo,
-        "pessoaCnpj": cnpj,
-        "usuarioCpf": cpf,
-        "senha": senha
-    }
 
-    headers = {
-        "Content-Type": "application/json"
-    }
-
+def _consulta_semad_json(url: str, step: str, **kwargs) -> dict:
+    started_at = time.perf_counter()
+    context = {"system": "SEMAD", "step": f"semad.{step}.start"}
+    logger.info(context["step"], extra=context)
     try:
-        response = requests.post(
-            url,
-            json=payload,
-            headers=headers,
-            timeout=30
-        )
-    except requests.RequestException as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Erro de comunicação com a SEMAD (token): {str(e)}"
-        )
-
+        response = requests.post(url, timeout=30, **kwargs)
+    except requests.Timeout as error:
+        logger.error("semad.error", extra={**context, "error_type": type(error).__name__,
+                     "elapsed_ms": (time.perf_counter() - started_at) * 1000})
+        raise HTTPException(status_code=504, detail="Timeout na consulta SEMAD.") from None
+    except requests.RequestException as error:
+        logger.error("semad.error", extra={**context, "error_type": type(error).__name__,
+                     "elapsed_ms": (time.perf_counter() - started_at) * 1000})
+        raise HTTPException(status_code=502, detail="Erro de comunicação com a SEMAD.") from None
+    logger.info(f"semad.{step}.http_response", extra={"system": "SEMAD", "step": f"semad.{step}.http_response",
+                "upstream_status": response.status_code, "elapsed_ms": (time.perf_counter() - started_at) * 1000})
     if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail="Erro ao gerar token na SEMAD"
-        )
+        status = response.status_code if response.status_code in {401, 403} else 502
+        raise HTTPException(status_code=status, detail="Consulta SEMAD recusada.")
+    try:
+        data = response.json()
+    except ValueError:
+        raise HTTPException(status_code=502, detail="Resposta inválida da SEMAD.") from None
+    if not isinstance(data, dict) or data.get("erro") is True or data.get("sucesso") is False:
+        raise HTTPException(status_code=502, detail="Resposta inválida da SEMAD.")
+    return data
 
-    data = response.json()
 
-    if data.get("retornoCodigo") != 0 or "token" not in data:
-        raise HTTPException(
-            status_code=401,
-            detail=f"Falha na autenticação SEMAD: {data}"
-        )
-
-    return data["token"]
+def gerar_token_semad(pessoa_codigo: int, cnpj: str, cpf: str, senha: str) -> str:
+    if type(pessoa_codigo) is not int or pessoa_codigo <= 0:
+        raise HTTPException(status_code=400, detail="pessoaCodigo SEMAD inválido.")
+    if any(not isinstance(value, str) or not value.strip() for value in (cnpj, cpf, senha)):
+        raise HTTPException(status_code=400, detail="Credenciais SEMAD incompletas.")
+    data = _consulta_semad_json(
+        f"{SEMAD_BASE_URL}/gettoken", "token",
+        json={"pessoaCodigo": pessoa_codigo, "pessoaCnpj": cnpj, "usuarioCpf": cpf, "senha": senha},
+        headers={"Content-Type": "application/json"},
+    )
+    token = data.get("token")
+    if (type(data.get("retornoCodigo")) is not int or data["retornoCodigo"] != 0
+            or not isinstance(token, str) or not token.strip()):
+        raise HTTPException(status_code=502, detail="Token SEMAD não retornado ou contrato inválido.")
+    return token.strip()
 
 
 def buscar_parceiro_semad(
@@ -302,36 +318,25 @@ def buscar_armazenador_semad(cnpj):
 # =========================
 # Passo 2 - Retorna Manifesto
 # =========================
-def retorna_manifesto_semad(
-    token: str,
-    codigo_barras: str
-):
-    url = f"{SEMAD_BASE_URL}/retornaManifesto/{codigo_barras}"
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-
-    try:
-        response = requests.post(
-            url,
-            headers=headers,
-            timeout=30
-        )
-    except requests.RequestException as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Erro de comunicação com a SEMAD (manifesto): {str(e)}"
-        )
-
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail="Erro ao consultar manifesto na SEMAD"
-        )
-
-    return response.json()
+def retorna_manifesto_semad(token: str, codigo_barras: str):
+    if not re.fullmatch(r"[0-9]{34}", codigo_barras or ""):
+        raise HTTPException(status_code=400, detail="Código de barras SEMAD inválido.")
+    token = str(token or "").strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    if not token or token.lower() == "bearer" or token.lower().startswith("bearer "):
+        raise HTTPException(status_code=400, detail="Token SEMAD não informado.")
+    data = _consulta_semad_json(
+        f"{SEMAD_BASE_URL}/retornaManifesto/{codigo_barras}", "manifest",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    identifier = data.get("manifestoCodigo")
+    if (type(identifier) not in (str, int) or not re.fullmatch(r"[0-9]+", str(identifier))
+            or int(str(identifier)) != int(codigo_barras[:10])
+            or ("retornoCodigo" in data and (type(data["retornoCodigo"]) is not int or data["retornoCodigo"] != 0))):
+        raise HTTPException(status_code=502, detail="Contrato de manifesto SEMAD não reconhecido.")
+    sensitive = {"login", "cpf", "senha", "token", "authorization", "cookies"}
+    return {key: value for key, value in data.items() if key.lower() not in sensitive}
 
 
 def download_mtr_semad(
