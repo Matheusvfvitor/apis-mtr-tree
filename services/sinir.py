@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict
 SINIR_LEGACY_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
 SINIR_TOKEN_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
 SINIR_MANIFESTO_BASE_URL = "https://admin.sinir.gov.br/api"
+# O upstream SINIR encerra conexões com o User-Agent padrão de requests.
+SINIR_USER_AGENT = "apis-mtr-tree/1.0"
 logger = logging.getLogger("sinir")
 
 print("[SINIR DEBUG] MODULE LOADED")
@@ -163,12 +165,14 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
         "Authorization": authorization,
         "Content-Type": "application/json",
         "Accept": "application/json",
+        "User-Agent": SINIR_USER_AGENT,
     }
 
     logger.info("step=token_exchange.start system=SINIR token_present=True")
     print("[SINIR DEBUG] executing POST token")
     print("[SINIR DEBUG] body=''")
     print("[SINIR DEBUG] timeout=30")
+    print(f"[SINIR DEBUG] user_agent={SINIR_USER_AGENT}")
     print(f"[SINIR DEBUG] url={url}")
 
     try:
@@ -284,7 +288,8 @@ def retorna_manifesto_sinir(
     authorization = normalizar_bearer(token_dinamico)
 
     headers = {
-        "Authorization": authorization
+        "Authorization": authorization,
+        "User-Agent": SINIR_USER_AGENT,
     }
     
     logger.info(
@@ -293,6 +298,7 @@ def retorna_manifesto_sinir(
         bool(authorization),
     )
     print("[SINIR DEBUG] executing GET manifesto")
+    print(f"[SINIR DEBUG] user_agent={SINIR_USER_AGENT}")
 
     try:
         response = requests.get(

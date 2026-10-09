@@ -84,6 +84,7 @@ def test_retorna_manifesto_normaliza_authorization(token, authorization):
         "https://admin.sinir.gov.br/api/retornaManifesto/351030485121"
     )
     assert get.call_args.kwargs["headers"]["Authorization"] == authorization
+    assert get.call_args.kwargs["headers"]["User-Agent"] == "apis-mtr-tree/1.0"
 
 
 def test_retorna_manifesto_rejeita_token_vazio():
@@ -186,6 +187,7 @@ def test_troca_token_usa_endpoint_apiws_token(caplog):
         "Authorization": "Bearer token-ws-secreto",
         "Content-Type": "application/json",
         "Accept": "application/json",
+        "User-Agent": "apis-mtr-tree/1.0",
     }
     assert token_post.call_args.kwargs["data"] == ""
     assert token_post.call_args.kwargs["timeout"] == 30
