@@ -192,7 +192,6 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
         response = requests.post(
             url,
             headers=headers,
-            data="",
             timeout=30,
         )
         print("[SINIR DEBUG] token POST returned")
