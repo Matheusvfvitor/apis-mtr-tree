@@ -326,7 +326,7 @@ def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
     try:
         manifesto = consultar_manifesto_ima(
             codigo_barras=dados.codigoBarras,
-            unidade_gerador=dados.unidadeGerador,
+            login=dados.cpf,
             senha=dados.senha,
             cnpj=dados.cnpj,
         )
@@ -336,8 +336,8 @@ def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
     except HTTPException as e:
         raise e
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Erro inesperado ao consultar manifesto IMA.") from None
 
 
 @app.post('/ima/busca-parceiro')

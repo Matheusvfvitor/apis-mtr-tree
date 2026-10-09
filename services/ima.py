@@ -2,8 +2,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
 from typing import Dict, Tuple, Optional, Union, Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 import logging
+import re
+import time
 import json
 
 
@@ -31,28 +33,53 @@ logger.setLevel(logging.INFO)
 
 def consultar_manifesto_ima(
     codigo_barras: str,
-    unidade_gerador: str,
+    login: str,
     senha: str,
     cnpj: str
 ):
-    url = (
-        f"https://mtr.ima.sc.gov.br/mtrservice/retornaManifesto/"
-        f"{codigo_barras}/{unidade_gerador}/{senha}/{cnpj}"
+    started_at = time.perf_counter()
+    barcode_valid = bool(re.fullmatch(r"[0-9]{34}", codigo_barras or ""))
+    context = {"system": "IMA", "step": "manifest.start", "barcode_valid": barcode_valid}
+    logger.info("ima.manifest.start", extra=context)
+    if not barcode_valid:
+        raise HTTPException(status_code=400, detail="Código de barras IMA inválido.")
+    if any(not str(value or "").strip() for value in (login, senha, cnpj)):
+        raise HTTPException(status_code=400, detail="Credenciais IMA incompletas.")
+    segments = (codigo_barras, login, senha, cnpj)
+    url = "https://mtr.ima.sc.gov.br/mtrservice/retornaManifesto/" + "/".join(
+        quote(str(value), safe="") for value in segments
     )
-
-    headers = {
-        "Content-Type": "application/json"
-    }
-
-    response = requests.post(url, headers=headers, timeout=30)
-
+    try:
+        response = requests.post(url, headers={"Content-Type": "application/json"}, timeout=30)
+    except requests.Timeout as error:
+        logger.error("ima.error", extra={**context, "step": "manifest.error",
+                     "error_type": type(error).__name__, "elapsed_ms": (time.perf_counter() - started_at) * 1000})
+        raise HTTPException(status_code=504, detail="Timeout ao consultar manifesto no IMA.") from None
+    except requests.RequestException as error:
+        logger.error("ima.error", extra={**context, "step": "manifest.error",
+                     "error_type": type(error).__name__, "elapsed_ms": (time.perf_counter() - started_at) * 1000})
+        raise HTTPException(status_code=502, detail="Erro de comunicação com o IMA.") from None
+    logger.info("ima.manifest.http_response", extra={**context, "step": "manifest.http_response",
+                "upstream_status": response.status_code, "elapsed_ms": (time.perf_counter() - started_at) * 1000})
     if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail="Erro ao consultar manifesto no IMA"
-        )
-
-    return response.json()
+        status = response.status_code if response.status_code in {401, 403} else 502
+        raise HTTPException(status_code=status, detail="Erro ao consultar manifesto no IMA.")
+    try:
+        data = response.json()
+    except ValueError:
+        raise HTTPException(status_code=502, detail="Resposta inválida do IMA.") from None
+    if not isinstance(data, dict) or data.get("erro") is True or data.get("sucesso") is False:
+        raise HTTPException(status_code=502, detail="Resposta inválida do IMA.")
+    identifier = data.get("manifestoCodigo")
+    if (
+        type(identifier) not in (str, int)
+        or not re.fullmatch(r"[0-9]+", str(identifier))
+        or int(str(identifier)) != int(codigo_barras[:10])
+        or (data.get("cdfCodigo") is not None and type(data["cdfCodigo"]) not in (str, int))
+        or ("retornoCodigo" in data and (type(data["retornoCodigo"]) is not int or data["retornoCodigo"] != 0))
+    ):
+        raise HTTPException(status_code=502, detail="Contrato de manifesto IMA inválido.")
+    return data
 
 def autenticar_e_obter_cookies(
     cnpj: str,
