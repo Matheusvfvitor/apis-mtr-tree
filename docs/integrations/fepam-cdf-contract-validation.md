@@ -19,3 +19,14 @@ TESTES: teste de request exato e fixture negativa; validar com suite antes do co
 RISCO RESIDUAL: contrato documentado, não foi realizado smoke positivo no ambiente atual.
 DEPLOY: NAO EXECUTADO
 PROXIMA BATCH: FEPAM-2
+
+BATCH: FEPAM-2
+STATUS: IMPLEMENTED
+REPOSITORIO/BRANCH: apis-mtr-tree/main + tree-automation/main
+ARQUIVOS ALTERADOS: API services/fepam.py e tests/test_fepam_manifesto.py; scheduler mtr_cdf_check.py e seus testes; relatórios nos dois repos.
+CONTRATOS PRESERVADOS: endpoint retornaManifesto, request e envelope {sucesso, orgao, dados}; manifestoJSON mantido. Apenas campos de autenticação ecoados na raiz foram suprimidos por segurança.
+TESTES: API pytest completo 123 passed; scheduler test_mtr_cdf_check.py + test_mtr_client.py 128 passed. Compilação dos fontes alterados e git diff --check OK. Ruff dos testes e fontes scheduler OK. Limitações globais de compileall/pytest já descritas em IMA-1/2.
+EVIDENCIAS: Caso B comprovado pela página 4 do manual oficial acima. Scheduler passa a extrair apenas dados.manifestoJSON.cdfCodigo; valida identidade do MTR e retornoCodigo=0. Erros funcionais conhecidos não viram semCdf. API mapeia códigos documentados 900/901/902/903 a 401/403/404/400, respectivamente; códigos desconhecidos e contratos malformados a 502.
+RISCO RESIDUAL: manual oficial e mocks, sem smoke positivo real. Testes nulos não substituem confirmação operacional de ausência de CDF.
+DEPLOY: NAO EXECUTADO
+PROXIMA BATCH: SEMAD-1

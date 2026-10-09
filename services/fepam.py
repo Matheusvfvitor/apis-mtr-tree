@@ -45,19 +45,36 @@ def retorna_manifesto_fepam(
             headers=headers,
             timeout=30
         )
-    except requests.RequestException as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Erro de comunicação com a FEPAM: {str(e)}"
-        )
+    except requests.Timeout:
+        raise HTTPException(status_code=504, detail="Timeout ao consultar manifesto na FEPAM.") from None
+    except requests.RequestException:
+        raise HTTPException(status_code=502, detail="Erro de comunicação com a FEPAM.") from None
 
     if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail="Erro ao consultar manifesto na FEPAM"
-        )
+        status = response.status_code if response.status_code in {401, 403} else 502
+        raise HTTPException(status_code=status, detail="Erro ao consultar manifesto na FEPAM.")
+    try:
+        data = response.json()
+    except ValueError:
+        raise HTTPException(status_code=502, detail="Resposta inválida da FEPAM.") from None
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="Resposta inválida da FEPAM.")
+    manifest = data.get("manifestoJSON")
+    code = manifest.get("retornoCodigo") if isinstance(manifest, dict) else data.get("retornoCodigo")
+    if type(code) is not int or code != 0:
+        status = {900: 401, 901: 403, 902: 404, 903: 400}.get(code, 502) if type(code) is int else 502
+        raise HTTPException(status_code=status, detail="Consulta FEPAM recusada ou contrato inválido.")
+    identifier = manifest.get("manifestoCodigo") if isinstance(manifest, dict) else None
+    if (type(identifier) not in (str, int) or not str(identifier).isascii()
+            or not str(identifier).isdigit() or not str(manifesto_codigo).isdigit()
+            or int(str(identifier)) != int(str(manifesto_codigo))
+            or data.get("erro") is True or data.get("sucesso") is False
+            or (manifest.get("cdfCodigo") is not None and type(manifest["cdfCodigo"]) not in (str, int))):
+        raise HTTPException(status_code=502, detail="Contrato de manifesto FEPAM inválido.")
+    # The official response echoes authentication fields; retain operational data only.
+    sensitive = {"login", "senha", "cnp", "token", "authorization", "cookies"}
+    return {key: value for key, value in data.items() if key.lower() not in sensitive}
 
-    return response.json()
 
 
 import requests
