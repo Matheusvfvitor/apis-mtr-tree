@@ -61,6 +61,8 @@ def retorna_manifesto_fepam(
         raise HTTPException(status_code=502, detail="Resposta inválida da FEPAM.")
     manifest = data.get("manifestoJSON")
     code = manifest.get("retornoCodigo") if isinstance(manifest, dict) else data.get("retornoCodigo")
+    if "retornoCodigo" in data and (type(data["retornoCodigo"]) is not int or data["retornoCodigo"] != 0):
+        code = data["retornoCodigo"]
     if type(code) is not int or code != 0:
         status = {900: 401, 901: 403, 902: 404, 903: 400}.get(code, 502) if type(code) is int else 502
         raise HTTPException(status_code=status, detail="Consulta FEPAM recusada ou contrato inválido.")

@@ -79,7 +79,8 @@ def consultar_manifesto_ima(
         or ("retornoCodigo" in data and (type(data["retornoCodigo"]) is not int or data["retornoCodigo"] != 0))
     ):
         raise HTTPException(status_code=502, detail="Contrato de manifesto IMA inválido.")
-    return data
+    sensitive = {"login", "cpf", "senha", "token", "authorization", "cookies"}
+    return {key: value for key, value in data.items() if key.lower() not in sensitive}
 
 def autenticar_e_obter_cookies(
     cnpj: str,

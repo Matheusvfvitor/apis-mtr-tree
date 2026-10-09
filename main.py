@@ -322,7 +322,7 @@ def feam_buscar_parceiro(dados: BuscaParceiro):
 # ================================================================================================================
 
 
-@app.post('/ima/retorna-manifesto-codigo-de-barras')
+@safe_mtr_query_post(app, '/ima/retorna-manifesto-codigo-de-barras')
 def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
     try:
         manifesto = consultar_manifesto_ima(
@@ -418,7 +418,7 @@ async def salvar_manifesto_ima_route(request: Request):
 # =========================
 
 
-@app.post('/fepam/retorna-manifesto-codigo-de-barras')
+@safe_mtr_query_post(app, '/fepam/retorna-manifesto-codigo-de-barras')
 def fepam_retorna_manifesto(dados: ConsultaFepamManifestoRequest):
     try:
         manifesto = retorna_manifesto_fepam(
