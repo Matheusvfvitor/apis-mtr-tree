@@ -8,29 +8,13 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 
 SINIR_LEGACY_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
-SINIR_TOKEN_BASE_URL = "https://admin.sinir.gov.br/apiws/rest/token"
+SINIR_TOKEN_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
 SINIR_MANIFESTO_BASE_URL = "https://admin.sinir.gov.br/api"
 logger = logging.getLogger("sinir")
 
 print("[SINIR DEBUG] MODULE LOADED")
 print(f"[SINIR DEBUG] SINIR_TOKEN_BASE_URL={SINIR_TOKEN_BASE_URL}")
 print(f"[SINIR DEBUG] SINIR_MANIFESTO_BASE_URL={SINIR_MANIFESTO_BASE_URL}")
-
-
-def debug_token(label: str, token: str | None) -> None:
-    token = str(token or "").strip()
-    if not token:
-        print(f"[SINIR DEBUG] {label}: EMPTY")
-        return
-
-    has_bearer = token.lower().startswith("bearer ")
-    clean = token[7:] if has_bearer else token
-    masked = f"{clean[:4]}...{clean[-4:]}" if len(clean) > 8 else "***"
-    print(
-        f"[SINIR DEBUG] {label}: "
-        f"present=True has_bearer={has_bearer} "
-        f"length={len(token)} value={masked}"
-    )
 
 
 def _repr_erro_seguro(error: Exception, *secrets: str) -> str:
@@ -170,28 +154,27 @@ def normalizar_bearer(token: str) -> str:
 
 
 def gerar_token_dinamico_sinir(token_ws: str) -> str:
-    print('log-manal [token_ws]', token_ws)
     url = f"{SINIR_TOKEN_BASE_URL}/token"
     started_at = time.perf_counter()
     print("\n[SINIR DEBUG] ===== TOKEN EXCHANGE START =====")
     print(f"[SINIR DEBUG] token_url={url}")
-    debug_token("token_ws_raw", token_ws)
     authorization = normalizar_bearer(token_ws)
-    print('log-manual [authorization]', authorization)
-    debug_token("authorization_after_normalize", authorization)
     headers = {"Authorization": authorization}
 
     logger.info("step=token_exchange.start system=SINIR token_present=True")
     print("[SINIR DEBUG] executing POST token")
     print("[SINIR DEBUG] body=''")
     print("[SINIR DEBUG] timeout=30")
-    print("[SINIR DEBUG] headers={}", headers)
-    print("[SINIR DEBUG] url={}", url)
+    print(f"[SINIR DEBUG] url={url}")
 
     try:
-        response = requests.request("POST", url, headers=headers, data='')
+        response = requests.post(
+            url,
+            headers=headers,
+            data="",
+            timeout=30,
+        )
         print("[SINIR DEBUG] token POST returned")
-        print('log-manual [response]', response)
     except Exception as error:
         print("[SINIR DEBUG] TOKEN POST EXCEPTION")
         print(f"[SINIR DEBUG] type={type(error).__name__}")
@@ -259,11 +242,7 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
     keys = sorted(str(key) for key in data) if isinstance(data, dict) else []
     print(f"[SINIR DEBUG] response_keys={keys if isinstance(data, dict) else 'not-dict'}")
     print(f"[SINIR DEBUG] erro={data.get('erro') if isinstance(data, dict) else None}")
-    mensagem = data.get("mensagem") if isinstance(data, dict) else None
     token_dinamico = data.get("objetoResposta") if isinstance(data, dict) else None
-    print(
-        f"[SINIR DEBUG] mensagem={_texto_seguro(str(mensagem), token_ws, authorization, token_dinamico)[:200]}"
-    )
     logger.info(
         "step=token_exchange.response system=SINIR status=%s json_type=%s keys=%s elapsed_ms=%.0f",
         response.status_code,
@@ -272,7 +251,6 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
         elapsed_ms,
     )
 
-    debug_token("token_dinamico_from_objetoResposta", token_dinamico)
     if (
         isinstance(data, dict)
         and data.get("erro") is not True
@@ -281,7 +259,6 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
     ):
         token_dinamico = token_dinamico.strip()
         print("[SINIR DEBUG] token exchange success")
-        debug_token("token_dinamico_return", token_dinamico)
         print("[SINIR DEBUG] ===== TOKEN EXCHANGE END =====\n")
         return token_dinamico
 
@@ -299,18 +276,13 @@ def retorna_manifesto_sinir(
     manifesto_log = _mascarar_manifesto_sinir(manifesto_numero)
     started_at = time.perf_counter()
     print("\n[SINIR DEBUG] ===== MANIFEST REQUEST START =====")
-    print(f"[SINIR DEBUG] manifesto_url={url}")
-    print(f"[SINIR DEBUG] manifesto_numero={manifesto_numero}")
-    debug_token("token_dinamico_received", token_dinamico)
+    print(f"[SINIR DEBUG] manifesto={manifesto_log}")
     authorization = normalizar_bearer(token_dinamico)
-    debug_token("manifest_authorization", authorization)
 
     headers = {
         "Authorization": authorization
     }
     
-    print(authorization)
-
     logger.info(
         "step=manifesto_request.start system=SINIR manifesto=%s token_present=%s",
         manifesto_log,
