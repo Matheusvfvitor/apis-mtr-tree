@@ -159,7 +159,11 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
     print("\n[SINIR DEBUG] ===== TOKEN EXCHANGE START =====")
     print(f"[SINIR DEBUG] token_url={url}")
     authorization = normalizar_bearer(token_ws)
-    headers = {"Authorization": authorization}
+    headers = {
+        "Authorization": authorization,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
 
     logger.info("step=token_exchange.start system=SINIR token_present=True")
     print("[SINIR DEBUG] executing POST token")

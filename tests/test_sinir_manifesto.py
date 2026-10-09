@@ -182,7 +182,11 @@ def test_troca_token_usa_endpoint_apiws_token(caplog):
     assert token == f"Bearer {token_dinamico}"
     assert token_post.call_args.args[0] == "https://admin.sinir.gov.br/apiws/rest/token"
     assert "/api/token" not in token_post.call_args.args[0]
-    assert token_post.call_args.kwargs["headers"]["Authorization"] == "Bearer token-ws-secreto"
+    assert token_post.call_args.kwargs["headers"] == {
+        "Authorization": "Bearer token-ws-secreto",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
     assert token_post.call_args.kwargs["data"] == ""
     assert token_post.call_args.kwargs["timeout"] == 30
     assert "step=token_exchange.response" in caplog.text
