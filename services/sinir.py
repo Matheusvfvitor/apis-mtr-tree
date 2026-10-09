@@ -1,10 +1,18 @@
 import json
+import logging
+import time
 
 import requests
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 
 SINIR_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
+logger = logging.getLogger("sinir")
+
+
+def _mascarar_manifesto_sinir(manifesto_numero: str) -> str:
+    numero = str(manifesto_numero or "")
+    return f"***{numero[-4:]}" if numero else "***"
 
 # =========================
 # Schema de entrada SINIR Busca Modelo
@@ -123,10 +131,19 @@ def retorna_manifesto_sinir(
     manifesto_numero: str
 ):
     url = f"{SINIR_BASE_URL}/retornaManifesto/{manifesto_numero}"
+    manifesto_log = _mascarar_manifesto_sinir(manifesto_numero)
+    started_at = time.perf_counter()
+    authorization = normalizar_token_sinir(token_bearer)
 
     headers = {
-        "Authorization": normalizar_token_sinir(token_bearer)
+        "Authorization": authorization
     }
+
+    logger.info(
+        "step=manifesto_request.start system=SINIR manifesto=%s token_present=%s",
+        manifesto_log,
+        bool(authorization),
+    )
 
     try:
         response = requests.get(
@@ -135,17 +152,42 @@ def retorna_manifesto_sinir(
             timeout=30
         )
     except requests.Timeout:
+        logger.error(
+            "step=manifesto_request.timeout system=SINIR manifesto=%s elapsed_ms=%.0f",
+            manifesto_log,
+            (time.perf_counter() - started_at) * 1000,
+        )
         raise HTTPException(
             status_code=504,
             detail="Timeout na comunicação com o SINIR (manifesto).",
         )
-    except requests.RequestException:
+    except requests.RequestException as error:
+        logger.error(
+            "step=manifesto_request.transport_error system=SINIR manifesto=%s error_type=%s elapsed_ms=%.0f",
+            manifesto_log,
+            type(error).__name__,
+            (time.perf_counter() - started_at) * 1000,
+        )
         raise HTTPException(
             status_code=502,
             detail="Erro de comunicação com o SINIR (manifesto).",
         )
 
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "step=manifesto_request.upstream_response system=SINIR manifesto=%s status_code=%s elapsed_ms=%.0f",
+        manifesto_log,
+        response.status_code,
+        elapsed_ms,
+    )
+
     if response.status_code != 200:
+        logger.error(
+            "step=manifesto_request.upstream_error system=SINIR manifesto=%s status_code=%s elapsed_ms=%.0f",
+            manifesto_log,
+            response.status_code,
+            elapsed_ms,
+        )
         raise HTTPException(
             status_code=response.status_code
             if response.status_code in (401, 403) or response.status_code >= 500
@@ -153,7 +195,13 @@ def retorna_manifesto_sinir(
             detail="Erro ao consultar manifesto no SINIR"
         )
 
-    return response.json()
+    manifesto = response.json()
+    logger.info(
+        "step=manifesto_request.success system=SINIR manifesto=%s elapsed_ms=%.0f",
+        manifesto_log,
+        elapsed_ms,
+    )
+    return manifesto
 
 # ==================================================
 # Retorna Dados Transportador
@@ -240,4 +288,3 @@ def busca_modelos_sinir(login: str = "04304532642", senha: str = "Sinir@2601", p
     response = requests.request("GET", url, headers=headers, data=payload)
     print(response.text)
     return response.text
-
