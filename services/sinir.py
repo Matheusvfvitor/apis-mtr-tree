@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 
 SINIR_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
-SINIR_TOKEN_BASE_URL = "https://admin.sinir.gov.br/api/rest"
+SINIR_TOKEN_BASE_URL = "https://admin.sinir.gov.br/api"
 SINIR_MANIFESTO_BASE_URL = "https://admin.sinir.gov.br/api"
 logger = logging.getLogger("sinir")
 
