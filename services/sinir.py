@@ -1,15 +1,56 @@
 import json
 import logging
+import re
 import time
 
 import requests
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 
-SINIR_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
+SINIR_LEGACY_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
 SINIR_TOKEN_BASE_URL = "https://admin.sinir.gov.br/api"
 SINIR_MANIFESTO_BASE_URL = "https://admin.sinir.gov.br/api"
 logger = logging.getLogger("sinir")
+
+print("[SINIR DEBUG] MODULE LOADED")
+print(f"[SINIR DEBUG] SINIR_TOKEN_BASE_URL={SINIR_TOKEN_BASE_URL}")
+print(f"[SINIR DEBUG] SINIR_MANIFESTO_BASE_URL={SINIR_MANIFESTO_BASE_URL}")
+
+
+def debug_token(label: str, token: str | None) -> None:
+    token = str(token or "").strip()
+    if not token:
+        print(f"[SINIR DEBUG] {label}: EMPTY")
+        return
+
+    has_bearer = token.lower().startswith("bearer ")
+    clean = token[7:] if has_bearer else token
+    masked = f"{clean[:4]}...{clean[-4:]}" if len(clean) > 8 else "***"
+    print(
+        f"[SINIR DEBUG] {label}: "
+        f"present=True has_bearer={has_bearer} "
+        f"length={len(token)} value={masked}"
+    )
+
+
+def _repr_erro_seguro(error: Exception, *secrets: str) -> str:
+    return _texto_seguro(repr(error), *secrets)
+
+
+def _texto_seguro(text: str, *secrets: str) -> str:
+    safe_text = str(text)
+    for secret in sorted((str(value or "").strip() for value in secrets), key=len, reverse=True):
+        if secret:
+            safe_text = safe_text.replace(secret, "<REDACTED>")
+            without_bearer = re.sub(r"(?i)^bearer\s+", "", secret)
+            if without_bearer:
+                safe_text = safe_text.replace(without_bearer, "<REDACTED>")
+    return re.sub(r"(?i)(Bearer\s+)[^'\"\s,}]+", r"\1<REDACTED>", safe_text)
+
+
+def _content_length(response) -> int:
+    content = getattr(response, "content", b"")
+    return len(content) if isinstance(content, (bytes, bytearray, str)) else 0
 
 
 def _mascarar_manifesto_sinir(manifesto_numero: str) -> str:
@@ -37,7 +78,7 @@ class ConsultaSinirManifestoRequest(BaseModel):
 # Passo 1 - Get Token SINIR
 # =========================
 def gerar_token_sinir(cpf_cnpj: str, senha: str, unidade: str) -> str:
-    url = f"{SINIR_BASE_URL}/gettoken"
+    url = f"{SINIR_LEGACY_BASE_URL}/gettoken"
 
     payload = {
         "cpfCnpj": cpf_cnpj,
@@ -131,9 +172,17 @@ def normalizar_bearer(token: str) -> str:
 def gerar_token_dinamico_sinir(token_ws: str) -> str:
     url = f"{SINIR_TOKEN_BASE_URL}/token"
     started_at = time.perf_counter()
-    headers = {"Authorization": normalizar_bearer(token_ws)}
+    print("\n[SINIR DEBUG] ===== TOKEN EXCHANGE START =====")
+    print(f"[SINIR DEBUG] token_url={url}")
+    debug_token("token_ws_raw", token_ws)
+    authorization = normalizar_bearer(token_ws)
+    debug_token("authorization_after_normalize", authorization)
+    headers = {"Authorization": authorization}
 
     logger.info("step=token_exchange.start system=SINIR token_present=True")
+    print("[SINIR DEBUG] executing POST token")
+    print("[SINIR DEBUG] body=''")
+    print("[SINIR DEBUG] timeout=30")
 
     try:
         response = requests.post(
@@ -142,25 +191,40 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
             data="",
             timeout=30,
         )
-    except requests.Timeout:
-        logger.error(
-            "step=token_exchange.timeout system=SINIR elapsed_ms=%.0f",
-            (time.perf_counter() - started_at) * 1000,
+    except Exception as error:
+        print("[SINIR DEBUG] TOKEN POST EXCEPTION")
+        print(f"[SINIR DEBUG] type={type(error).__name__}")
+        print(
+            f"[SINIR DEBUG] repr={_repr_erro_seguro(error, token_ws, authorization)}"
         )
-        raise HTTPException(
-            status_code=504,
-            detail="Timeout na troca do token SINIR.",
-        )
-    except requests.RequestException as error:
-        logger.error(
-            "step=token_exchange.transport_error system=SINIR error_type=%s elapsed_ms=%.0f",
-            type(error).__name__,
-            (time.perf_counter() - started_at) * 1000,
-        )
-        raise HTTPException(
-            status_code=502,
-            detail="Erro de comunicação na troca do token SINIR.",
-        )
+        if isinstance(error, requests.Timeout):
+            logger.error(
+                "step=token_exchange.timeout system=SINIR elapsed_ms=%.0f",
+                (time.perf_counter() - started_at) * 1000,
+            )
+            raise HTTPException(
+                status_code=504,
+                detail="Timeout na troca do token SINIR.",
+            )
+        if isinstance(error, requests.RequestException):
+            logger.error(
+                "step=token_exchange.transport_error system=SINIR error_type=%s elapsed_ms=%.0f",
+                type(error).__name__,
+                (time.perf_counter() - started_at) * 1000,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Erro de comunicação na troca do token SINIR.",
+            )
+        raise
+
+    print("[SINIR DEBUG] token POST returned")
+    print(f"[SINIR DEBUG] status={response.status_code}")
+    content_type = _texto_seguro(
+        str(response.headers.get("Content-Type")), token_ws, authorization
+    )
+    print(f"[SINIR DEBUG] content_type={content_type}")
+    print(f"[SINIR DEBUG] content_length={_content_length(response)}")
 
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     if response.status_code != 200:
@@ -176,7 +240,9 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
 
     try:
         data = response.json()
-    except ValueError:
+    except ValueError as error:
+        print("[SINIR DEBUG] token response JSON EXCEPTION")
+        print(f"[SINIR DEBUG] type={type(error).__name__}")
         logger.error(
             "step=token_exchange.response system=SINIR status=%s json_type=invalid keys=[] elapsed_ms=%.0f",
             response.status_code,
@@ -187,8 +253,16 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
             detail="Resposta inválida na troca do token SINIR.",
         )
 
+    print("[SINIR DEBUG] token response parsed")
     json_type = type(data).__name__
     keys = sorted(str(key) for key in data) if isinstance(data, dict) else []
+    print(f"[SINIR DEBUG] response_keys={keys if isinstance(data, dict) else 'not-dict'}")
+    print(f"[SINIR DEBUG] erro={data.get('erro') if isinstance(data, dict) else None}")
+    mensagem = data.get("mensagem") if isinstance(data, dict) else None
+    token_dinamico = data.get("objetoResposta") if isinstance(data, dict) else None
+    print(
+        f"[SINIR DEBUG] mensagem={_texto_seguro(str(mensagem), token_ws, authorization, token_dinamico)[:200]}"
+    )
     logger.info(
         "step=token_exchange.response system=SINIR status=%s json_type=%s keys=%s elapsed_ms=%.0f",
         response.status_code,
@@ -197,14 +271,18 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
         elapsed_ms,
     )
 
-    token_dinamico = data.get("objetoResposta") if isinstance(data, dict) else None
+    debug_token("token_dinamico_from_objetoResposta", token_dinamico)
     if (
         isinstance(data, dict)
         and data.get("erro") is not True
         and isinstance(token_dinamico, str)
         and token_dinamico.strip()
     ):
-        return token_dinamico.strip()
+        token_dinamico = token_dinamico.strip()
+        print("[SINIR DEBUG] token exchange success")
+        debug_token("token_dinamico_return", token_dinamico)
+        print("[SINIR DEBUG] ===== TOKEN EXCHANGE END =====\n")
+        return token_dinamico
 
     raise HTTPException(
         status_code=502,
@@ -219,7 +297,12 @@ def retorna_manifesto_sinir(
     url = f"{SINIR_MANIFESTO_BASE_URL}/retornaManifesto/{manifesto_numero}"
     manifesto_log = _mascarar_manifesto_sinir(manifesto_numero)
     started_at = time.perf_counter()
+    print("\n[SINIR DEBUG] ===== MANIFEST REQUEST START =====")
+    print(f"[SINIR DEBUG] manifesto_url={url}")
+    print(f"[SINIR DEBUG] manifesto_numero={manifesto_numero}")
+    debug_token("token_dinamico_received", token_dinamico)
     authorization = normalizar_bearer(token_dinamico)
+    debug_token("manifest_authorization", authorization)
 
     headers = {
         "Authorization": authorization
@@ -230,6 +313,7 @@ def retorna_manifesto_sinir(
         manifesto_log,
         bool(authorization),
     )
+    print("[SINIR DEBUG] executing GET manifesto")
 
     try:
         response = requests.get(
@@ -237,27 +321,42 @@ def retorna_manifesto_sinir(
             headers=headers,
             timeout=30
         )
-    except requests.Timeout:
-        logger.error(
-            "step=manifesto_request.timeout system=SINIR manifesto=%s elapsed_ms=%.0f",
-            manifesto_log,
-            (time.perf_counter() - started_at) * 1000,
+    except Exception as error:
+        print("[SINIR DEBUG] MANIFEST GET EXCEPTION")
+        print(f"[SINIR DEBUG] type={type(error).__name__}")
+        print(
+            f"[SINIR DEBUG] repr={_repr_erro_seguro(error, token_dinamico, authorization)}"
         )
-        raise HTTPException(
-            status_code=504,
-            detail="Timeout na comunicação com o SINIR (manifesto).",
-        )
-    except requests.RequestException as error:
-        logger.error(
-            "step=manifesto_request.transport_error system=SINIR manifesto=%s error_type=%s elapsed_ms=%.0f",
-            manifesto_log,
-            type(error).__name__,
-            (time.perf_counter() - started_at) * 1000,
-        )
-        raise HTTPException(
-            status_code=502,
-            detail="Erro de comunicação com o SINIR (manifesto).",
-        )
+        if isinstance(error, requests.Timeout):
+            logger.error(
+                "step=manifesto_request.timeout system=SINIR manifesto=%s elapsed_ms=%.0f",
+                manifesto_log,
+                (time.perf_counter() - started_at) * 1000,
+            )
+            raise HTTPException(
+                status_code=504,
+                detail="Timeout na comunicação com o SINIR (manifesto).",
+            )
+        if isinstance(error, requests.RequestException):
+            logger.error(
+                "step=manifesto_request.transport_error system=SINIR manifesto=%s error_type=%s elapsed_ms=%.0f",
+                manifesto_log,
+                type(error).__name__,
+                (time.perf_counter() - started_at) * 1000,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Erro de comunicação com o SINIR (manifesto).",
+            )
+        raise
+
+    print("[SINIR DEBUG] manifesto GET returned")
+    print(f"[SINIR DEBUG] status={response.status_code}")
+    content_type = _texto_seguro(
+        str(response.headers.get("Content-Type")), token_dinamico, authorization
+    )
+    print(f"[SINIR DEBUG] content_type={content_type}")
+    print(f"[SINIR DEBUG] content_length={_content_length(response)}")
 
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     logger.info(
@@ -279,12 +378,43 @@ def retorna_manifesto_sinir(
             detail="Erro ao consultar manifesto no SINIR"
         )
 
-    manifesto = response.json()
+    try:
+        manifesto = response.json()
+    except Exception as error:
+        print("[SINIR DEBUG] manifesto JSON EXCEPTION")
+        print(f"[SINIR DEBUG] type={type(error).__name__}")
+        raise
+
+    print("[SINIR DEBUG] manifesto JSON parsed")
+    if isinstance(manifesto, dict):
+        objeto = manifesto.get("objetoResposta")
+        print(f"[SINIR DEBUG] root_keys={list(manifesto.keys())}")
+        safe_erro = _texto_seguro(
+            str(manifesto.get("erro")), token_dinamico, authorization
+        )
+        print(f"[SINIR DEBUG] erro={safe_erro}")
+        if isinstance(objeto, dict):
+            man_numero = _texto_seguro(
+                str(objeto.get("manNumero")), token_dinamico, authorization
+            )
+            cdf_numero = _texto_seguro(
+                str(objeto.get("cdfNumero")), token_dinamico, authorization
+            )
+            print(f"[SINIR DEBUG] manNumero={man_numero}")
+            print(f"[SINIR DEBUG] cdfNumero={cdf_numero}")
+            situacao = objeto.get("situacaoManifesto")
+            descricao = situacao.get("simDescricao") if isinstance(situacao, dict) else None
+            safe_descricao = _texto_seguro(
+                str(descricao), token_dinamico, authorization
+            )
+            print(f"[SINIR DEBUG] situacao={safe_descricao}")
+
     logger.info(
         "step=manifesto_request.success system=SINIR manifesto=%s elapsed_ms=%.0f",
         manifesto_log,
         elapsed_ms,
     )
+    print("[SINIR DEBUG] ===== MANIFEST REQUEST END =====\n")
     return manifesto
 
 # ==================================================
