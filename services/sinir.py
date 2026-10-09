@@ -1,7 +1,8 @@
+import json
+
 import requests
 from fastapi import HTTPException
-from pydantic import BaseModel
-import json
+from pydantic import BaseModel, ConfigDict
 
 SINIR_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
 
@@ -17,10 +18,9 @@ class ConsultaSinirModeloRequest(BaseModel):
 # Schema de entrada SINIR
 # =========================
 class ConsultaSinirManifestoRequest(BaseModel):
-    cpfCnpj: str
-    senha: str
-    unidade: str
+    token: str
     manifestoNumero: str
+    model_config = ConfigDict(extra="forbid")
 
 
 # =========================
@@ -106,6 +106,18 @@ def login_nao_oficial_sinir(login: str = "04304532642", senha: str = "Sinir@2601
 # =========================
 # Passo 2 - Retorna Manifesto
 # =========================
+def normalizar_token_sinir(token: str) -> str:
+    token = str(token or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail="Token SINIR não informado.",
+        )
+    if token.lower().startswith("bearer "):
+        return token
+    return f"Bearer {token}"
+
+
 def retorna_manifesto_sinir(
     token_bearer: str,
     manifesto_numero: str
@@ -113,7 +125,7 @@ def retorna_manifesto_sinir(
     url = f"{SINIR_BASE_URL}/retornaManifesto/{manifesto_numero}"
 
     headers = {
-        "Authorization": token_bearer
+        "Authorization": normalizar_token_sinir(token_bearer)
     }
 
     try:
@@ -122,15 +134,22 @@ def retorna_manifesto_sinir(
             headers=headers,
             timeout=30
         )
-    except requests.RequestException as e:
+    except requests.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Timeout na comunicação com o SINIR (manifesto).",
+        )
+    except requests.RequestException:
         raise HTTPException(
             status_code=502,
-            detail=f"Erro de comunicação com o SINIR (manifesto): {str(e)}"
+            detail="Erro de comunicação com o SINIR (manifesto).",
         )
 
     if response.status_code != 200:
         raise HTTPException(
-            status_code=502,
+            status_code=response.status_code
+            if response.status_code in (401, 403) or response.status_code >= 500
+            else 502,
             detail="Erro ao consultar manifesto no SINIR"
         )
 
