@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 
 SINIR_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
+SINIR_TOKEN_BASE_URL = "https://admin.sinir.gov.br/api/rest"
 SINIR_MANIFESTO_BASE_URL = "https://admin.sinir.gov.br/api"
 logger = logging.getLogger("sinir")
 
@@ -128,7 +129,7 @@ def normalizar_bearer(token: str) -> str:
 
 
 def gerar_token_dinamico_sinir(token_ws: str) -> str:
-    url = f"{SINIR_BASE_URL}/token"
+    url = f"{SINIR_TOKEN_BASE_URL}/token"
     started_at = time.perf_counter()
     headers = {"Authorization": normalizar_bearer(token_ws)}
 

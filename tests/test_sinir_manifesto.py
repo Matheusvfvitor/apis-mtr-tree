@@ -162,7 +162,7 @@ def test_retorna_manifesto_nao_expoe_token_em_erro(network_error):
     assert token not in str(exc_info.value.detail)
 
 
-def test_troca_token_ws_chama_endpoint_sem_body_e_registra_somente_estrutura(caplog):
+def test_troca_token_usa_endpoint_api_rest(caplog):
     token_ws = "token-ws-secreto"
     token_dinamico = "token-dinamico-secreto"
     response = Mock(status_code=200)
@@ -180,7 +180,8 @@ def test_troca_token_ws_chama_endpoint_sem_body_e_registra_somente_estrutura(cap
         token = gerar_token_dinamico_sinir(token_ws)
 
     assert token == f"Bearer {token_dinamico}"
-    assert token_post.call_args.args[0] == "https://admin.sinir.gov.br/apiws/rest/token"
+    assert token_post.call_args.args[0] == "https://admin.sinir.gov.br/api/rest/token"
+    assert "/apiws/rest/token" not in token_post.call_args.args[0]
     assert token_post.call_args.kwargs["headers"]["Authorization"] == "Bearer token-ws-secreto"
     assert token_post.call_args.kwargs["data"] == ""
     assert token_post.call_args.kwargs["timeout"] == 30
