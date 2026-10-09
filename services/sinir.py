@@ -170,12 +170,14 @@ def normalizar_bearer(token: str) -> str:
 
 
 def gerar_token_dinamico_sinir(token_ws: str) -> str:
+    print('log-manal [token_ws]', token_ws)
     url = f"{SINIR_TOKEN_BASE_URL}/token"
     started_at = time.perf_counter()
     print("\n[SINIR DEBUG] ===== TOKEN EXCHANGE START =====")
     print(f"[SINIR DEBUG] token_url={url}")
     debug_token("token_ws_raw", token_ws)
     authorization = normalizar_bearer(token_ws)
+    print('log-manual [authorization]', authorization)
     debug_token("authorization_after_normalize", authorization)
     headers = {"Authorization": authorization}
 
@@ -307,6 +309,8 @@ def retorna_manifesto_sinir(
     headers = {
         "Authorization": authorization
     }
+    
+    print(authorization)
 
     logger.info(
         "step=manifesto_request.start system=SINIR manifesto=%s token_present=%s",
