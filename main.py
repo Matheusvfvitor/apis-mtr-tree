@@ -58,6 +58,7 @@ from services.ima import (
 )
 from services.sinir import (
     ConsultaSinirManifestoRequest,
+    gerar_token_dinamico_sinir,
     retorna_manifesto_sinir,
 )
 from services.sigor import (
@@ -777,8 +778,9 @@ def inea_buscar_modelo(dados: ConsultaIneaModeloDetalheRequest):
 @app.post('/sinir/retorna-manifesto')
 def sinir_retorna_manifesto(dados: ConsultaSinirManifestoRequest):
     try:
+        token_dinamico = gerar_token_dinamico_sinir(token_ws=dados.token)
         manifesto = retorna_manifesto_sinir(
-            token_bearer=dados.token,
+            token_dinamico=token_dinamico,
             manifesto_numero=dados.manifestoNumero,
         )
 

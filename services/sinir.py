@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 
 SINIR_BASE_URL = "https://admin.sinir.gov.br/apiws/rest"
+SINIR_MANIFESTO_BASE_URL = "https://admin.sinir.gov.br/api"
 logger = logging.getLogger("sinir")
 
 
@@ -114,7 +115,7 @@ def login_nao_oficial_sinir(login: str = "04304532642", senha: str = "Sinir@2601
 # =========================
 # Passo 2 - Retorna Manifesto
 # =========================
-def normalizar_token_sinir(token: str) -> str:
+def normalizar_bearer(token: str) -> str:
     token = str(token or "").strip()
     if not token:
         raise HTTPException(
@@ -126,14 +127,98 @@ def normalizar_token_sinir(token: str) -> str:
     return f"Bearer {token}"
 
 
+def gerar_token_dinamico_sinir(token_ws: str) -> str:
+    url = f"{SINIR_BASE_URL}/token"
+    started_at = time.perf_counter()
+    headers = {"Authorization": normalizar_bearer(token_ws)}
+
+    logger.info("step=token_exchange.start system=SINIR token_present=True")
+
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            data="",
+            timeout=30,
+        )
+    except requests.Timeout:
+        logger.error(
+            "step=token_exchange.timeout system=SINIR elapsed_ms=%.0f",
+            (time.perf_counter() - started_at) * 1000,
+        )
+        raise HTTPException(
+            status_code=504,
+            detail="Timeout na troca do token SINIR.",
+        )
+    except requests.RequestException as error:
+        logger.error(
+            "step=token_exchange.transport_error system=SINIR error_type=%s elapsed_ms=%.0f",
+            type(error).__name__,
+            (time.perf_counter() - started_at) * 1000,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Erro de comunicação na troca do token SINIR.",
+        )
+
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    if response.status_code != 200:
+        logger.error(
+            "step=token_exchange.response system=SINIR status=%s elapsed_ms=%.0f",
+            response.status_code,
+            elapsed_ms,
+        )
+        raise HTTPException(
+            status_code=response.status_code,
+            detail="Erro ao trocar o token SINIR.",
+        )
+
+    try:
+        data = response.json()
+    except ValueError:
+        logger.error(
+            "step=token_exchange.response system=SINIR status=%s json_type=invalid keys=[] elapsed_ms=%.0f",
+            response.status_code,
+            elapsed_ms,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Resposta inválida na troca do token SINIR.",
+        )
+
+    json_type = type(data).__name__
+    keys = sorted(str(key) for key in data) if isinstance(data, dict) else []
+    logger.info(
+        "step=token_exchange.response system=SINIR status=%s json_type=%s keys=%s elapsed_ms=%.0f",
+        response.status_code,
+        json_type,
+        keys,
+        elapsed_ms,
+    )
+
+    token_dinamico = data.get("objetoResposta") if isinstance(data, dict) else None
+    if (
+        isinstance(data, dict)
+        and data.get("erro") is not True
+        and isinstance(token_dinamico, str)
+        and token_dinamico.strip()
+    ):
+        return token_dinamico.strip()
+
+    raise HTTPException(
+        status_code=502,
+        detail="Token dinâmico SINIR não retornado.",
+    )
+
+
 def retorna_manifesto_sinir(
-    token_bearer: str,
+    token_dinamico: str,
     manifesto_numero: str
 ):
-    url = f"{SINIR_BASE_URL}/retornaManifesto/{manifesto_numero}"
+    url = f"{SINIR_MANIFESTO_BASE_URL}/retornaManifesto/{manifesto_numero}"
     manifesto_log = _mascarar_manifesto_sinir(manifesto_numero)
     started_at = time.perf_counter()
-    authorization = normalizar_token_sinir(token_bearer)
+    authorization = normalizar_bearer(token_dinamico)
 
     headers = {
         "Authorization": authorization
@@ -189,9 +274,7 @@ def retorna_manifesto_sinir(
             elapsed_ms,
         )
         raise HTTPException(
-            status_code=response.status_code
-            if response.status_code in (401, 403) or response.status_code >= 500
-            else 502,
+            status_code=response.status_code,
             detail="Erro ao consultar manifesto no SINIR"
         )
 
