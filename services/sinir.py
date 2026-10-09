@@ -185,6 +185,8 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
     print("[SINIR DEBUG] executing POST token")
     print("[SINIR DEBUG] body=''")
     print("[SINIR DEBUG] timeout=30")
+    print("[SINIR DEBUG] headers={}", headers)
+    print("[SINIR DEBUG] url={}", url)
 
     try:
         response = requests.post(
@@ -193,6 +195,8 @@ def gerar_token_dinamico_sinir(token_ws: str) -> str:
             data="",
             timeout=30,
         )
+        print("[SINIR DEBUG] token POST returned")
+        print('log-manual [response]', response)
     except Exception as error:
         print("[SINIR DEBUG] TOKEN POST EXCEPTION")
         print(f"[SINIR DEBUG] type={type(error).__name__}")
