@@ -1359,16 +1359,36 @@ def retorna_manifesto_inea(
     )
 
     try:
-        response = requests.post(url, timeout=30)
-    except requests.RequestException as e:
+        if INEA_WORKAROUND_ENABLED:
+            response, _ = executar_post_inea_relay(
+                "/inea/retornaManifesto",
+                safe_to_retry=True,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "Tree-ESG-API/1.0",
+                    "Connection": "close",
+                },
+                json={"url": url},
+                timeout=(15, 60),
+                allow_redirects=False,
+            )
+        else:
+            response = requests.post(url, timeout=30)
+    except requests.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Timeout ao consultar manifesto no INEA.",
+        )
+    except requests.RequestException:
         raise HTTPException(
             status_code=502,
-            detail=f"Erro de comunicação com o INEA: {str(e)}"
+            detail="Erro de comunicação ao consultar manifesto no INEA.",
         )
 
     if response.status_code != 200:
         raise HTTPException(
-            status_code=502,
+            status_code=response.status_code,
             detail="Erro ao consultar manifesto no INEA"
         )
 
