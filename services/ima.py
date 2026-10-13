@@ -33,10 +33,10 @@ logger = logging.getLogger("ima")
 logger.setLevel(logging.INFO)
 
 def selecionar_login_consulta_ima(cpf: str, cnpj: str, senha: str, unidade: str) -> str:
-    """Use the IMA list probe, preferring CNPJ and falling back to CPF."""
+    """Use the IMA list probe, preferring CPF and falling back to CNPJ."""
     if any(not str(value or "").strip() for value in (cpf, cnpj, senha, unidade)):
         raise HTTPException(status_code=400, detail="Credenciais IMA incompletas.")
-    for login in dict.fromkeys((cnpj.strip(), cpf.strip())):
+    for login in dict.fromkeys((cpf.strip(), cnpj.strip())):
         segments = (login, senha, cnpj.strip(), unidade.strip())
         url = "https://mtr.ima.sc.gov.br/mtrservice/retornaListaClasse/" + "/".join(
             quote(str(value).strip(), safe="") for value in segments
@@ -76,7 +76,8 @@ def consultar_manifesto_ima(
     codigo_barras: str,
     login: str,
     senha: str,
-    cnpj: str
+    cnpj: str,
+    unidade: str,
 ):
     started_at = time.perf_counter()
     barcode_valid = bool(re.fullmatch(r"[0-9]{34}", codigo_barras or ""))
@@ -84,9 +85,9 @@ def consultar_manifesto_ima(
     logger.info("ima.manifest.start", extra=context)
     if not barcode_valid:
         raise HTTPException(status_code=400, detail="Código de barras IMA inválido.")
-    if any(not str(value or "").strip() for value in (login, senha, cnpj)):
+    if any(not str(value or "").strip() for value in (login, senha, cnpj, unidade)):
         raise HTTPException(status_code=400, detail="Credenciais IMA incompletas.")
-    segments = (codigo_barras, login, senha, cnpj)
+    segments = (codigo_barras, login, senha, cnpj, unidade)
     url = "https://mtr.ima.sc.gov.br/mtrservice/retornaManifesto/" + "/".join(
         quote(str(value), safe="") for value in segments
     )

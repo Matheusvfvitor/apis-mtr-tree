@@ -335,6 +335,7 @@ def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
             login=login,
             senha=dados.senha,
             cnpj=dados.cnpj,
+            unidade=dados.unidadeGerador,
         )
 
         return {'sucesso': True, 'dados': manifesto}
