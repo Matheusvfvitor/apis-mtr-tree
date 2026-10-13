@@ -118,8 +118,10 @@ def consultar_manifesto_ima(
             for key in ("retornoCodigo", "manifestoCodigo", "erro", "sucesso", "success")
             if key in data and type(data[key]) in (str, int, bool)
         }
+        detail_json = json.dumps(response_detail, ensure_ascii=False, sort_keys=True)
         logger.warning(
-            "ima.manifest.functional_error",
+            "ima.manifest.functional_error response_detail=%s",
+            detail_json,
             extra={
                 **context,
                 "step": "manifest.functional_error",

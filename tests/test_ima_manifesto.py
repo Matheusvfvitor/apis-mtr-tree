@@ -82,10 +82,14 @@ def test_ima_functional_error_logs_safe_response_detail(caplog):
         consultar_manifesto_ima(**ARGS)
 
     assert error.value.status_code == 422
-    record = next(item for item in caplog.records if item.message == "ima.manifest.functional_error")
+    record = next(
+        item for item in caplog.records
+        if str(item.msg).startswith("ima.manifest.functional_error")
+    )
     assert record.response_detail == {
         "retornoCodigo": 902, "manifestoCodigo": 123456, "erro": True,
     }
+    assert 'response_detail={"erro": true, "manifestoCodigo": 123456, "retornoCodigo": 902}' in record.getMessage()
     assert "must-not-be-logged" not in caplog.text
 
 
