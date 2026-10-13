@@ -69,6 +69,26 @@ def test_ima_invalid_or_functional_error_is_not_success(data):
     assert error.value.status_code == (422 if functional else 502)
 
 
+def test_ima_functional_error_logs_safe_response_detail(caplog):
+    upstream = Mock(status_code=200)
+    upstream.json.return_value = {
+        "retornoCodigo": 902,
+        "manifestoCodigo": 123456,
+        "erro": True,
+        "cnpj": "must-not-be-logged",
+        "senha": "must-not-be-logged",
+    }
+    with patch("services.ima.requests.post", return_value=upstream), pytest.raises(HTTPException) as error:
+        consultar_manifesto_ima(**ARGS)
+
+    assert error.value.status_code == 422
+    record = next(item for item in caplog.records if item.message == "ima.manifest.functional_error")
+    assert record.response_detail == {
+        "retornoCodigo": 902, "manifestoCodigo": 123456, "erro": True,
+    }
+    assert "must-not-be-logged" not in caplog.text
+
+
 def test_ima_non_json_is_controlled():
     upstream = Mock(status_code=200)
     upstream.json.side_effect = ValueError('secret-sentinel')

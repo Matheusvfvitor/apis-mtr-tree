@@ -113,6 +113,19 @@ def consultar_manifesto_ima(
         raise HTTPException(status_code=502, detail="Resposta inválida do IMA.")
     if (data.get("erro") is True or data.get("sucesso") is False or data.get("success") is False
             or (type(data.get("retornoCodigo")) is int and data["retornoCodigo"] != 0)):
+        response_detail = {
+            key: data[key]
+            for key in ("retornoCodigo", "manifestoCodigo", "erro", "sucesso", "success")
+            if key in data and type(data[key]) in (str, int, bool)
+        }
+        logger.warning(
+            "ima.manifest.functional_error",
+            extra={
+                **context,
+                "step": "manifest.functional_error",
+                "response_detail": response_detail,
+            },
+        )
         raise HTTPException(status_code=422, detail=sanitize_query_response(data))
     identifier = data.get("manifestoCodigo")
     if (
