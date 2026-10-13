@@ -27,7 +27,7 @@ def test_ima_success_does_not_echo_authentication_fields():
     upstream = Mock(status_code=200)
     upstream.json.return_value = {"manifestoCodigo": 123456, "cdfCodigo": 777,
                                   "cpf": "cpf-sentinel", "senha": "password-sentinel"}
-    with patch("services.ima.requests.post", return_value=upstream):
+    with patch("services.ima.requests.post", side_effect=[Mock(status_code=200, json=Mock(return_value=[])), upstream]):
         response = TestClient(main.app).post("/ima/retorna-manifesto-codigo-de-barras", json={
             "cpf": "cpf-sentinel", "cnpj": "cnpj-sentinel", "senha": "password-sentinel",
             "unidadeGerador": "34", "codigoBarras": BARCODE,

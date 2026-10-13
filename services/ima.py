@@ -7,6 +7,7 @@ import logging
 import re
 import time
 import json
+from services.query_response import sanitize_query_response
 
 
 
@@ -31,6 +32,46 @@ IMA_WORKAROUND_ENABLED = False
 logger = logging.getLogger("ima")
 logger.setLevel(logging.INFO)
 
+def selecionar_login_consulta_ima(cpf: str, cnpj: str, senha: str, unidade: str) -> str:
+    """Use the TEG list probe, trying CPF before CNPJ."""
+    if any(not str(value or "").strip() for value in (cpf, cnpj, senha, unidade)):
+        raise HTTPException(status_code=400, detail="Credenciais IMA incompletas.")
+    for login in dict.fromkeys((cpf.strip(), cnpj.strip())):
+        segments = (login, senha, cnpj.strip(), unidade.strip())
+        url = "https://mtr.ima.sc.gov.br/mtrservice/retornaListaClasse/" + "/".join(
+            quote(str(value).strip(), safe="") for value in segments
+        )
+        try:
+            response = requests.post(url, headers={
+                "Accept": "application/json", "Content-Type": "application/json; charset=utf-8",
+                "User-Agent": "Tree-Environmental-Gateway/1.0",
+            }, timeout=30)
+        except requests.Timeout:
+            raise HTTPException(status_code=504, detail="Timeout na autenticação IMA.") from None
+        except requests.RequestException:
+            raise HTTPException(status_code=502, detail="Erro de comunicação com o IMA.") from None
+        if response.status_code in {401, 403}:
+            continue
+        if response.status_code >= 500:
+            raise HTTPException(status_code=502, detail="Erro de comunicação com o IMA.")
+        try:
+            data = response.json()
+        except ValueError:
+            raise HTTPException(status_code=502, detail="Resposta inválida do IMA.") from None
+        if not 200 <= response.status_code < 300:
+            continue
+        if isinstance(data, list):
+            return login
+        if isinstance(data, dict) and data.get("erro") is not True:
+            try:
+                code = int(data.get("retornoCodigo", -1))
+            except (TypeError, ValueError):
+                code = -1
+            if code in {0, 200, 901}:
+                return login
+    raise HTTPException(status_code=401, detail="Credenciais IMA recusadas.")
+
+
 def consultar_manifesto_ima(
     codigo_barras: str,
     login: str,
@@ -50,7 +91,7 @@ def consultar_manifesto_ima(
         quote(str(value), safe="") for value in segments
     )
     try:
-        response = requests.post(url, headers={"Content-Type": "application/json"}, timeout=30)
+        response = requests.post(url, headers={"Accept": "application/json", "Content-Type": "application/json; charset=utf-8", "User-Agent": "Tree-Environmental-Gateway/1.0"}, timeout=30)
     except requests.Timeout as error:
         logger.error("ima.error", extra={**context, "step": "manifest.error",
                      "error_type": type(error).__name__, "elapsed_ms": (time.perf_counter() - started_at) * 1000})
@@ -68,8 +109,11 @@ def consultar_manifesto_ima(
         data = response.json()
     except ValueError:
         raise HTTPException(status_code=502, detail="Resposta inválida do IMA.") from None
-    if not isinstance(data, dict) or data.get("erro") is True or data.get("sucesso") is False:
+    if not isinstance(data, dict):
         raise HTTPException(status_code=502, detail="Resposta inválida do IMA.")
+    if (data.get("erro") is True or data.get("sucesso") is False or data.get("success") is False
+            or (type(data.get("retornoCodigo")) is int and data["retornoCodigo"] != 0)):
+        raise HTTPException(status_code=422, detail=sanitize_query_response(data))
     identifier = data.get("manifestoCodigo")
     if (
         type(identifier) not in (str, int)
@@ -79,8 +123,7 @@ def consultar_manifesto_ima(
         or ("retornoCodigo" in data and (type(data["retornoCodigo"]) is not int or data["retornoCodigo"] != 0))
     ):
         raise HTTPException(status_code=502, detail="Contrato de manifesto IMA inválido.")
-    sensitive = {"login", "cpf", "senha", "token", "authorization", "cookies"}
-    return {key: value for key, value in data.items() if key.lower() not in sensitive}
+    return sanitize_query_response(data)
 
 def autenticar_e_obter_cookies(
     cnpj: str,

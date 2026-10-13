@@ -1,5 +1,5 @@
 import logging
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 from urllib.parse import quote
 
 import pytest
@@ -17,15 +17,17 @@ ARGS = {'codigo_barras': BARCODE, 'login': 'cpf-sentinel', 'senha': 'secret/sent
 def test_ima_route_preserves_contract_and_uses_cpf_login(caplog):
     upstream = Mock(status_code=200)
     upstream.json.return_value = {'manifestoCodigo': 123456, 'cdfCodigo': 'CDF-IMA'}
-    with patch('services.ima.requests.post', return_value=upstream) as post, caplog.at_level(logging.INFO, logger='ima'):
+    with patch('services.ima.requests.post', side_effect=[Mock(status_code=200, json=Mock(return_value=[])), upstream]) as post, caplog.at_level(logging.INFO, logger='ima'):
         response = TestClient(main.app).post('/ima/retorna-manifesto-codigo-de-barras', json={
             'codigoBarras': BARCODE, 'cpf': ARGS['login'], 'senha': ARGS['senha'],
             'cnpj': ARGS['cnpj'], 'unidadeGerador': 'unit-distinct-from-cpf',
         })
     assert response.json() == {'sucesso': True, 'dados': upstream.json.return_value}
-    post.assert_called_once_with('https://mtr.ima.sc.gov.br/mtrservice/retornaManifesto/' + '/'.join(
+    assert len(post.call_args_list) == 2
+    assert post.call_args_list[0].args[0].startswith('https://mtr.ima.sc.gov.br/mtrservice/retornaListaClasse/cpf-sentinel/')
+    assert post.call_args_list[1] == call('https://mtr.ima.sc.gov.br/mtrservice/retornaManifesto/' + '/'.join(
         quote(value, safe='') for value in (BARCODE, ARGS['login'], ARGS['senha'], ARGS['cnpj'])
-    ), headers={'Content-Type': 'application/json'}, timeout=30)
+    ), headers={"Accept": "application/json", "Content-Type": "application/json; charset=utf-8", "User-Agent": "Tree-Environmental-Gateway/1.0"}, timeout=30)
     assert 'unit-distinct-from-cpf' not in post.call_args.args[0]
     assert ARGS['senha'] not in caplog.text
     assert ARGS['login'] not in caplog.text
@@ -63,7 +65,8 @@ def test_ima_invalid_or_functional_error_is_not_success(data):
     upstream.json.return_value = data
     with patch('services.ima.requests.post', return_value=upstream), pytest.raises(HTTPException) as error:
         consultar_manifesto_ima(**ARGS)
-    assert error.value.status_code == 502
+    functional = isinstance(data, dict) and (data.get("erro") is True or type(data.get("retornoCodigo")) is int and data["retornoCodigo"] != 0)
+    assert error.value.status_code == (422 if functional else 502)
 
 
 def test_ima_non_json_is_controlled():

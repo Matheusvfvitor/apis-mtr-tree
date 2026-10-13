@@ -1,6 +1,8 @@
 import requests
+from urllib.parse import quote
+from services.query_response import sanitize_query_response
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, Tuple, Optional, Union, Any
 
 FEPAM_URL = "https://mtr.fepam.rs.gov.br/mtrservice/retornaManifesto"
@@ -14,6 +16,7 @@ class ConsultaFepamManifestoRequest(BaseModel):
     cnpj: str
     senha: str
     manifestoCodigo: str
+    unidade: str | None = Field(default=None, min_length=1)
 
 
 # =========================
@@ -23,8 +26,38 @@ def retorna_manifesto_fepam(
     cnpj: str,
     cpf: str,
     senha: str,
-    manifesto_codigo: str
+    manifesto_codigo: str,
+    unidade: str | None = None,
 ):
+    if unidade is not None:
+        if not unidade.strip():
+            raise HTTPException(status_code=400, detail="Unidade FEPAM não informada.")
+        key = "/".join(quote(value.strip(), safe="") for value in (cpf, senha, cnpj))
+        try:
+            auth_response = requests.post(
+                "https://mtr.fepam.rs.gov.br/mtrservice/retornaListaEstadoFisico/" + key,
+                headers={"Accept": "application/json, text/plain, */*",
+                         "Content-Type": "application/json; charset=utf-8",
+                         "User-Agent": "Tree-Environmental-Gateway/1.0"}, timeout=30,
+            )
+        except requests.Timeout:
+            raise HTTPException(status_code=504, detail="Timeout na autenticação FEPAM.") from None
+        except requests.RequestException:
+            raise HTTPException(status_code=502, detail="Erro de comunicação com a FEPAM.") from None
+        if auth_response.status_code in {401, 403}:
+            raise HTTPException(status_code=auth_response.status_code, detail="Credenciais FEPAM recusadas.")
+        if not 200 <= auth_response.status_code < 300:
+            raise HTTPException(status_code=502, detail="Erro na autenticação FEPAM.")
+        try:
+            auth_data = auth_response.json()
+        except ValueError:
+            raise HTTPException(status_code=502, detail="Resposta inválida da FEPAM.") from None
+        valid_auth = isinstance(auth_data, list) or (
+            isinstance(auth_data, dict) and type(auth_data.get("retornoCodigo")) is int
+            and auth_data["retornoCodigo"] in {0, 200} and auth_data.get("erro") is not True
+        )
+        if not valid_auth:
+            raise HTTPException(status_code=401, detail="Credenciais FEPAM recusadas.")
     payload = {
         "cnp": cnpj,
         "login": cpf,
@@ -34,8 +67,14 @@ def retorna_manifesto_fepam(
         }
     }
 
+    if unidade is not None:
+        unit = unidade.strip()
+        payload["codUnidade"] = int(unit) if unit.isdigit() else unit
+
     headers = {
-        "Content-Type": "application/json"
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json; charset=utf-8",
+        "User-Agent": "Tree-Environmental-Gateway/1.0",
     }
 
     try:
@@ -66,6 +105,8 @@ def retorna_manifesto_fepam(
     if type(code) is not int or code != 0:
         status = {900: 401, 901: 403, 902: 404, 903: 400}.get(code, 502) if type(code) is int else 502
         raise HTTPException(status_code=status, detail="Consulta FEPAM recusada ou contrato inválido.")
+    if data.get("erro") is True or data.get("sucesso") is False or data.get("success") is False:
+        raise HTTPException(status_code=422, detail=sanitize_query_response(data))
     identifier = manifest.get("manifestoCodigo") if isinstance(manifest, dict) else None
     if (type(identifier) not in (str, int) or not str(identifier).isascii()
             or not str(identifier).isdigit() or not str(manifesto_codigo).isdigit()
@@ -74,8 +115,7 @@ def retorna_manifesto_fepam(
             or (manifest.get("cdfCodigo") is not None and type(manifest["cdfCodigo"]) not in (str, int))):
         raise HTTPException(status_code=502, detail="Contrato de manifesto FEPAM inválido.")
     # The official response echoes authentication fields; retain operational data only.
-    sensitive = {"login", "senha", "cnp", "token", "authorization", "cookies"}
-    return {key: value for key, value in data.items() if key.lower() not in sensitive}
+    return sanitize_query_response(data)
 
 
 

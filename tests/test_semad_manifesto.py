@@ -33,7 +33,7 @@ def test_semad_route_preserves_contract_and_uses_single_bearer(token, caplog):
     assert result.json() == {'sucesso': True, 'orgao': 'SEMAD', 'dados': manifest.json.return_value}
     first, second = post.call_args_list
     assert first.args[0] == 'https://mtr.meioambiente.go.gov.br/api/gettoken'
-    assert first.kwargs['json'] == {'pessoaCodigo': 123, 'pessoaCnpj': CREDS['cnpj'], 'usuarioCpf': CREDS['cpf'], 'senha': CREDS['senha']}
+    assert first.kwargs['json'] == {'pessoaCodigo': '123', 'pessoaCnpj': CREDS['cnpj'], 'usuarioCpf': CREDS['cpf'], 'senha': CREDS['senha']}
     assert second.args[0] == f'https://mtr.meioambiente.go.gov.br/api/retornaManifesto/{BARCODE}'
     assert second.kwargs['headers']['Authorization'] == 'Bearer token-sentinel'
     assert first.kwargs['timeout'] == second.kwargs['timeout'] == 30
@@ -41,7 +41,7 @@ def test_semad_route_preserves_contract_and_uses_single_bearer(token, caplog):
         assert secret not in caplog.text + result.text
 
 
-@pytest.mark.parametrize('code', [None, '', 0, -1, True, 1.5, 'invalid'])
+@pytest.mark.parametrize('code', [None, '', ' ', True, 1.5])
 def test_semad_invalid_person_code_rejected_before_http_without_echo(code):
     payload = {'cnpj': CREDS['cnpj'], 'cpf': CREDS['cpf'], 'senha': CREDS['senha'], 'codigoBarras': BARCODE}
     if code is not None:
@@ -89,7 +89,8 @@ def test_semad_unknown_or_functional_error_is_not_success(data):
     upstream.json.return_value = data
     with patch('services.semad.requests.post', return_value=upstream), pytest.raises(HTTPException) as error:
         retorna_manifesto_semad('token-sentinel', BARCODE)
-    assert error.value.status_code == 502
+    functional = isinstance(data, dict) and (data.get("erro") is True or type(data.get("retornoCodigo")) is int and data["retornoCodigo"] != 0)
+    assert error.value.status_code == (422 if functional else 502)
 
 
 @pytest.mark.parametrize('stage', ['token', 'manifest'])

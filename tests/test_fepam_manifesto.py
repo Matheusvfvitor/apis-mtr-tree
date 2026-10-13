@@ -18,7 +18,7 @@ def test_fepam_documented_request_and_nested_manifest_contract():
     post.assert_called_once_with(
         'https://mtr.fepam.rs.gov.br/mtrservice/retornaManifesto',
         json={'cnp': 'cnpj-fixture', 'login': 'cpf-fixture', 'senha': 'password-fixture', 'manifestoJSON': {'manifestoCodigo': '123456'}},
-        headers={'Content-Type': 'application/json'}, timeout=30,
+        headers={"Accept": "application/json, text/plain, */*", "Content-Type": "application/json; charset=utf-8", "User-Agent": "Tree-Environmental-Gateway/1.0"}, timeout=30,
     )
 
 

@@ -1,4 +1,5 @@
 import requests
+from services.query_response import sanitize_query_response
 import logging
 import re
 import time
@@ -13,7 +14,7 @@ SEMAD_BASE_URL = "https://mtr.meioambiente.go.gov.br/api"
 # Schema de entrada SEMAD
 # =========================
 class ConsultaSemadManifestoRequest(BaseModel):
-    pessoaCodigo: int = Field(gt=0)
+    pessoaCodigo: str | int = Field()
     cnpj: str = Field(min_length=1)
     cpf: str = Field(min_length=1)
     senha: str = Field(min_length=1)
@@ -22,9 +23,9 @@ class ConsultaSemadManifestoRequest(BaseModel):
     @field_validator("pessoaCodigo", mode="before")
     @classmethod
     def validar_pessoa_codigo(cls, value):
-        if isinstance(value, (bool, float)):
-            raise ValueError("pessoaCodigo deve ser inteiro.")
-        return value
+        if type(value) not in (str, int) or not str(value).strip():
+            raise ValueError("pessoaCodigo não informado.")
+        return str(value).strip()
 
     @field_validator("cnpj", "cpf", "senha")
     @classmethod
@@ -63,20 +64,27 @@ def _consulta_semad_json(url: str, step: str, **kwargs) -> dict:
         data = response.json()
     except ValueError:
         raise HTTPException(status_code=502, detail="Resposta inválida da SEMAD.") from None
-    if not isinstance(data, dict) or data.get("erro") is True or data.get("sucesso") is False:
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="Resposta inválida da SEMAD.")
+    if step == "manifest" and (
+        data.get("erro") is True or data.get("sucesso") is False or data.get("success") is False
+        or (type(data.get("retornoCodigo")) is int and data["retornoCodigo"] != 0)
+    ):
+        raise HTTPException(status_code=422, detail=sanitize_query_response(data))
+    if data.get("erro") is True or data.get("sucesso") is False:
         raise HTTPException(status_code=502, detail="Resposta inválida da SEMAD.")
     return data
 
 
-def gerar_token_semad(pessoa_codigo: int, cnpj: str, cpf: str, senha: str) -> str:
-    if type(pessoa_codigo) is not int or pessoa_codigo <= 0:
-        raise HTTPException(status_code=400, detail="pessoaCodigo SEMAD inválido.")
+def gerar_token_semad(pessoa_codigo: str | int, cnpj: str, cpf: str, senha: str) -> str:
+    if pessoa_codigo is None or not str(pessoa_codigo).strip():
+        raise HTTPException(status_code=400, detail="pessoaCodigo SEMAD não informado.")
     if any(not isinstance(value, str) or not value.strip() for value in (cnpj, cpf, senha)):
         raise HTTPException(status_code=400, detail="Credenciais SEMAD incompletas.")
     data = _consulta_semad_json(
         f"{SEMAD_BASE_URL}/gettoken", "token",
         json={"pessoaCodigo": pessoa_codigo, "pessoaCnpj": cnpj, "usuarioCpf": cpf, "senha": senha},
-        headers={"Content-Type": "application/json"},
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
     )
     token = data.get("token")
     if (type(data.get("retornoCodigo")) is not int or data["retornoCodigo"] != 0
@@ -328,15 +336,14 @@ def retorna_manifesto_semad(token: str, codigo_barras: str):
         raise HTTPException(status_code=400, detail="Token SEMAD não informado.")
     data = _consulta_semad_json(
         f"{SEMAD_BASE_URL}/retornaManifesto/{codigo_barras}", "manifest",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"},
     )
     identifier = data.get("manifestoCodigo")
     if (type(identifier) not in (str, int) or not re.fullmatch(r"[0-9]+", str(identifier))
             or int(str(identifier)) != int(codigo_barras[:10])
             or ("retornoCodigo" in data and (type(data["retornoCodigo"]) is not int or data["retornoCodigo"] != 0))):
         raise HTTPException(status_code=502, detail="Contrato de manifesto SEMAD não reconhecido.")
-    sensitive = {"login", "cpf", "senha", "token", "authorization", "cookies"}
-    return {key: value for key, value in data.items() if key.lower() not in sensitive}
+    return sanitize_query_response(data)
 
 
 def download_mtr_semad(

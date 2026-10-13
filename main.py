@@ -324,10 +324,15 @@ def feam_buscar_parceiro(dados: BuscaParceiro):
 
 @safe_mtr_query_post(app, '/ima/retorna-manifesto-codigo-de-barras')
 def retorna_manifesto_ima(dados: ConsultaIMAManifestoRequest):
+    from re import fullmatch
+    from services.ima import selecionar_login_consulta_ima
     try:
+        if not fullmatch(r"[0-9]{34}", dados.codigoBarras):
+            raise HTTPException(status_code=400, detail="Código de barras IMA inválido.")
+        login = selecionar_login_consulta_ima(dados.cpf, dados.cnpj, dados.senha, dados.unidadeGerador)
         manifesto = consultar_manifesto_ima(
             codigo_barras=dados.codigoBarras,
-            login=dados.cpf,
+            login=login,
             senha=dados.senha,
             cnpj=dados.cnpj,
         )
@@ -426,6 +431,7 @@ def fepam_retorna_manifesto(dados: ConsultaFepamManifestoRequest):
             cpf=dados.cpf,
             senha=dados.senha,
             manifesto_codigo=dados.manifestoCodigo,
+            unidade=dados.unidade,
         )
 
         return {'sucesso': True, 'orgao': 'FEPAM', 'dados': manifesto}
@@ -433,8 +439,8 @@ def fepam_retorna_manifesto(dados: ConsultaFepamManifestoRequest):
     except HTTPException as e:
         raise e
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Erro inesperado ao consultar manifesto FEPAM.") from None
 
 
 @app.post('/fepam/busca-parceiro')
