@@ -18,7 +18,7 @@ def upstream(data, status=200):
 
 
 @pytest.mark.parametrize("refused", [upstream({"retornoCodigo": 900}), upstream({}, 401), upstream({}, 403)])
-def test_ima_fallback_selects_cnpj_and_manifest_uses_selected_login(refused):
+def test_ima_falls_back_to_cpf_when_cnpj_login_is_refused(refused):
     manifest = {"manifestoCodigo": 123456, "cdfCodigo": 777}
     with patch("services.ima.requests.post", side_effect=[refused, upstream([]), upstream(manifest)]) as post:
         response = TestClient(main.app).post("/ima/retorna-manifesto-codigo-de-barras", json={
@@ -26,9 +26,9 @@ def test_ima_fallback_selects_cnpj_and_manifest_uses_selected_login(refused):
             "unidadeGerador": "unit-fixture", "codigoBarras": BARCODE,
         })
     assert response.status_code == 200
-    assert "/retornaListaClasse/cpf-fixture/" in post.call_args_list[0].args[0]
-    assert "/retornaListaClasse/cnpj-fixture/" in post.call_args_list[1].args[0]
-    assert post.call_args_list[2].args[0].endswith(f"{BARCODE}/cnpj-fixture/password-fixture/cnpj-fixture")
+    assert "/retornaListaClasse/cnpj-fixture/" in post.call_args_list[0].args[0]
+    assert "/retornaListaClasse/cpf-fixture/" in post.call_args_list[1].args[0]
+    assert post.call_args_list[2].args[0].endswith(f"{BARCODE}/cpf-fixture/password-fixture/cnpj-fixture")
 
 
 @pytest.mark.parametrize("status", [401, 403])

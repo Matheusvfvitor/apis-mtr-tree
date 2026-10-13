@@ -33,10 +33,10 @@ logger = logging.getLogger("ima")
 logger.setLevel(logging.INFO)
 
 def selecionar_login_consulta_ima(cpf: str, cnpj: str, senha: str, unidade: str) -> str:
-    """Use the TEG list probe, trying CPF before CNPJ."""
+    """Use the IMA list probe, preferring CNPJ and falling back to CPF."""
     if any(not str(value or "").strip() for value in (cpf, cnpj, senha, unidade)):
         raise HTTPException(status_code=400, detail="Credenciais IMA incompletas.")
-    for login in dict.fromkeys((cpf.strip(), cnpj.strip())):
+    for login in dict.fromkeys((cnpj.strip(), cpf.strip())):
         segments = (login, senha, cnpj.strip(), unidade.strip())
         url = "https://mtr.ima.sc.gov.br/mtrservice/retornaListaClasse/" + "/".join(
             quote(str(value).strip(), safe="") for value in segments

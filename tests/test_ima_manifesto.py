@@ -14,7 +14,7 @@ BARCODE = '0000123456000000340000005600000078'
 ARGS = {'codigo_barras': BARCODE, 'login': 'cpf-sentinel', 'senha': 'secret/sentinel?#', 'cnpj': 'cnpj-sentinel'}
 
 
-def test_ima_route_preserves_contract_and_uses_cpf_login(caplog):
+def test_ima_route_preserves_contract_and_prefers_cnpj_login(caplog):
     upstream = Mock(status_code=200)
     upstream.json.return_value = {'manifestoCodigo': 123456, 'cdfCodigo': 'CDF-IMA'}
     with patch('services.ima.requests.post', side_effect=[Mock(status_code=200, json=Mock(return_value=[])), upstream]) as post, caplog.at_level(logging.INFO, logger='ima'):
@@ -24,9 +24,9 @@ def test_ima_route_preserves_contract_and_uses_cpf_login(caplog):
         })
     assert response.json() == {'sucesso': True, 'dados': upstream.json.return_value}
     assert len(post.call_args_list) == 2
-    assert post.call_args_list[0].args[0].startswith('https://mtr.ima.sc.gov.br/mtrservice/retornaListaClasse/cpf-sentinel/')
+    assert post.call_args_list[0].args[0].startswith('https://mtr.ima.sc.gov.br/mtrservice/retornaListaClasse/cnpj-sentinel/')
     assert post.call_args_list[1] == call('https://mtr.ima.sc.gov.br/mtrservice/retornaManifesto/' + '/'.join(
-        quote(value, safe='') for value in (BARCODE, ARGS['login'], ARGS['senha'], ARGS['cnpj'])
+        quote(value, safe='') for value in (BARCODE, ARGS['cnpj'], ARGS['senha'], ARGS['cnpj'])
     ), headers={"Accept": "application/json", "Content-Type": "application/json; charset=utf-8", "User-Agent": "Tree-Environmental-Gateway/1.0"}, timeout=30)
     assert 'unit-distinct-from-cpf' not in post.call_args.args[0]
     assert ARGS['senha'] not in caplog.text
