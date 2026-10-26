@@ -1,0 +1,5 @@
+📅 2026-10-26 — Proxy de autenticação e operações SIGOR
+🐞 Problema: chamadas do navegador à CETESB podiam ser bloqueadas por CORS e autenticações repetidas podiam atingir a restrição de intervalo do SIGOR.
+🔧 Correção: adicionadas rotas autenticadas Tree para token, emissão, cancelamento e download, com autorização por empresa/filial, User-Agent, timeout, cache de token no backend e respostas sem cache.
+✅ Resultado: o frontend pode usar o backend como proxy sem expor credenciais SIGOR nas requisições diretas ao portal.
+🧪 Validação: importação da API, documentação local HTTP 200 e preflight CORS HTTP 200; autenticação e operações SIGOR reais pendentes de FIREBASE_KEY e teste autenticado.
