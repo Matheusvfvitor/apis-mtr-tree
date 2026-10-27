@@ -99,6 +99,7 @@ from services.inea import (
 
 from services.sinir import busca_modelos_sinir, ConsultaSinirModeloRequest
 from services.sigor import busca_modelos_sigor, ConsultaSigorModeloRequest
+from services.sigor_proxy import router as sigor_proxy_router
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -115,6 +116,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(
 
 
 app = FastAPI(title='API FEAM - Consulta MTR', version='1.0.0')
+app.include_router(sigor_proxy_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -832,11 +834,21 @@ def sinir_buscar_modelos(dados: ConsultaSinirModeloRequest):
 # SIGOR / CETESB - SP
 # =========================
 @app.post('/sigor/retorna-manifesto')
-def sigor_retorna_manifesto(dados: ConsultaSigorManifestoRequest):
+def sigor_retorna_manifesto(dados: ConsultaSigorManifestoRequest, request: Request):
     try:
-        token = gerar_token_sigor(cpf_cnpj=dados.cpfCnpj, senha=dados.senha, unidade=dados.unidade)
+        user_agent = " ".join(request.headers.get("user-agent", "").split())[:512] or "Tree ESG SIGOR relay"
+        token = gerar_token_sigor(
+            cpf_cnpj=dados.cpfCnpj,
+            senha=dados.senha,
+            unidade=dados.unidade,
+            user_agent=user_agent,
+        )
 
-        manifesto = retorna_manifesto_sigor(token_bearer=token, manifesto_numero=dados.manifestoNumero)
+        manifesto = retorna_manifesto_sigor(
+            token_bearer=token,
+            manifesto_numero=dados.manifestoNumero,
+            user_agent=user_agent,
+        )
 
         return {'sucesso': True, 'orgao': 'SIGOR', 'dados': manifesto}
 

@@ -2,6 +2,7 @@ import requests
 from fastapi import HTTPException
 from pydantic import BaseModel
 import json
+from typing import Optional
 
 SIGOR_BASE_URL = "https://mtrr.cetesb.sp.gov.br/apiws/rest"
 
@@ -23,7 +24,12 @@ class ConsultaSigorModeloRequest(BaseModel):
 # ==================================================
 # Passo 1 - Get Token SIGOR
 # ==================================================
-def gerar_token_sigor(cpf_cnpj: str, senha: str, unidade: str) -> str:
+def gerar_token_sigor(
+    cpf_cnpj: str,
+    senha: str,
+    unidade: str,
+    user_agent: Optional[str] = None,
+) -> str:
     url = f"{SIGOR_BASE_URL}/gettoken"
 
     payload = {
@@ -35,6 +41,8 @@ def gerar_token_sigor(cpf_cnpj: str, senha: str, unidade: str) -> str:
     headers = {
         "Content-Type": "application/json"
     }
+    if user_agent:
+        headers["User-Agent"] = user_agent[:512]
 
     try:
         response = requests.post(
@@ -49,6 +57,15 @@ def gerar_token_sigor(cpf_cnpj: str, senha: str, unidade: str) -> str:
             detail=f"Erro de comunicação com o SIGOR (token): {str(e)}"
         )
 
+    if response.status_code == 429:
+        raise HTTPException(
+            status_code=429,
+            detail="O SIGOR limitou temporariamente as autenticações.",
+            headers={
+                "Retry-After": response.headers.get("Retry-After", "60"),
+            },
+        )
+
     if response.status_code != 200:
         raise HTTPException(
             status_code=502,
@@ -60,7 +77,7 @@ def gerar_token_sigor(cpf_cnpj: str, senha: str, unidade: str) -> str:
     if data.get("erro") is True or "objetoResposta" not in data:
         raise HTTPException(
             status_code=401,
-            detail=f"Falha na autenticação SIGOR: {data}"
+            detail="Falha na autenticação SIGOR.",
         )
 
     # objetoResposta já vem como: "Bearer xxxxx"
@@ -109,13 +126,16 @@ def login_nao_oficial():
 
 def retorna_manifesto_sigor(
     token_bearer: str,
-    manifesto_numero: str
+    manifesto_numero: str,
+    user_agent: Optional[str] = None,
 ):
     url = f"{SIGOR_BASE_URL}/retornaManifesto/{manifesto_numero}"
 
     headers = {
         "Authorization": token_bearer
     }
+    if user_agent:
+        headers["User-Agent"] = user_agent[:512]
 
     try:
         response = requests.get(
