@@ -7,7 +7,7 @@ import logging
 import re
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import firebase_admin
 import requests
@@ -32,10 +32,17 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _SAFE_USER_AGENT = "Tree ESG SIGOR relay"
 
 
-class SigorRequest(BaseModel):
+class SigorContextRequest(BaseModel):
     empresaId: str
     filialId: str
+
+
+class SigorRequest(SigorContextRequest):
     dados: Optional[Dict[str, Any]] = None
+
+
+class SigorManifestRequest(SigorContextRequest):
+    dados: List[Dict[str, Any]]
 
 
 def _firebase_identity(request: Request) -> Dict[str, Any]:
@@ -63,7 +70,7 @@ def _user_agent(request: Request) -> str:
     return value[:512] or _SAFE_USER_AGENT
 
 
-def _get_authorized_context(request: Request, dados: SigorRequest):
+def _get_authorized_context(request: Request, dados: SigorContextRequest):
     if not _SAFE_ID.fullmatch(dados.empresaId) or not _SAFE_ID.fullmatch(dados.filialId):
         raise HTTPException(status_code=400, detail="Empresa ou filial inválida.")
 
@@ -186,9 +193,9 @@ def sigor_get_token(request: Request, dados: SigorRequest, response: FastAPIResp
 
 
 @router.post("/emitir-manifesto")
-def sigor_emitir_manifesto(request: Request, dados: SigorRequest):
+def sigor_emitir_manifesto(request: Request, dados: SigorManifestRequest):
     token = request.headers.get("X-Sigor-Token", "")
-    if not isinstance(dados.dados, dict) or not token:
+    if not isinstance(dados.dados, list) or not token:
         raise HTTPException(status_code=400, detail="Dados ou token SIGOR ausentes.")
     _get_authorized_context(request, dados)
     return _sigor_response("POST", "salvarManifestoLote", token, _user_agent(request), dados.dados)
