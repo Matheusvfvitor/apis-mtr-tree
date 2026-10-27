@@ -161,8 +161,8 @@ def _cached_token(uid: str, cpf_cnpj: str, password: str, unit: str, user_agent:
         return token
 
 
-def _sigor_response(method: str, path: str, token: str, user_agent: str, payload=None):
-    headers = {"Authorization": token, "User-Agent": user_agent, "Accept": "application/json"}
+def _sigor_response(method: str, path: str, token: str, user_agent: str, payload=None, accept="application/json"):
+    headers = {"Authorization": token, "User-Agent": user_agent, "Accept": accept}
     if payload is not None:
         headers["Content-Type"] = "application/json"
     try:
@@ -216,4 +216,7 @@ def sigor_download_manifesto(request: Request, numero: str, dados: SigorRequest)
     if not _SAFE_ID.fullmatch(numero) or not token:
         raise HTTPException(status_code=400, detail="Número de manifesto ou token SIGOR inválido.")
     _get_authorized_context(request, dados)
-    return _sigor_response("POST", f"downloadManifesto/{numero}", token, _user_agent(request))
+    return _sigor_response(
+        "POST", f"downloadManifesto/{numero}", token, _user_agent(request),
+        accept="application/pdf, application/octet-stream, */*",
+    )
